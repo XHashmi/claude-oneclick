@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Claude OneClick</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="dot" id="status-dot"></span>
+    <span class="title">Claude OneClick</span>
+    <span class="pill" id="active-pill">—</span>
+  </div>
+  <label class="vpn-toggle" title="Toggle Claude Code routing on/off (Space)">
+    <input type="checkbox" id="toggle" />
+    <span class="track"><span class="thumb"></span></span>
+    <span class="state-text" id="state-text">OFF</span>
+  </label>
+</header>
+
+<div id="onboarding" class="onboarding hidden">
+  <div class="onboarding-card">
+    <div class="step-indicator"><span class="step active">1</span><span class="step">2</span><span class="step">3</span><span class="step">4</span></div>
+
+    <div class="wizard-step active" data-step="1">
+      <h2>Welcome to Claude OneClick</h2>
+      <p>This tool routes Claude Code (CLI + VSCode) to a custom model endpoint —
+      DeepSeek, NVIDIA NIMs, OpenRouter, local Ollama, or anything OpenAI-compatible —
+      with a single toggle that applies system-wide.</p>
+      <p class="muted">Takes about 60 seconds to configure. You'll need an API key from your provider.</p>
+      <div class="wizard-actions"><button class="btn" id="wiz-skip">Skip wizard</button><button class="btn primary" data-next="2">Get started →</button></div>
+    </div>
+
+    <div class="wizard-step" data-step="2">
+      <h2>Step 1 — Pick a provider</h2>
+      <p>Pick the upstream you want Claude Code to talk to. You can change it any time later.</p>
+      <div class="provider-grid" id="wiz-providers"></div>
+      <div class="wizard-actions"><button class="btn" data-prev="1">← Back</button><button class="btn primary" data-next="3" id="wiz-next-2" disabled>Next →</button></div>
+    </div>
+
+    <div class="wizard-step" data-step="3">
+      <h2>Step 2 — Paste your API key</h2>
+      <p id="wiz-key-hint">Paste your provider's API key. It's stored in <code>~/.config/claude-oneclick/config.json</code> and never leaves your machine except when calling the upstream.</p>
+      <input type="password" id="wiz-api-key" placeholder="sk-..." autocomplete="off" class="wizard-input" />
+      <p class="muted small">Tip: leave blank to set this later in the General tab.</p>
+      <div class="wizard-actions"><button class="btn" data-prev="2">← Back</button><button class="btn primary" data-next="4">Next →</button></div>
+    </div>
+
+    <div class="wizard-step" data-step="4">
+      <h2>Step 3 — Flip the toggle</h2>
+      <p>You're set up. Click <b>Finish</b> to apply the env to every shell, VSCode terminal, and Claude Code session.</p>
+      <ul class="checklist">
+        <li>✓ Active preset set to <b id="wiz-preset-name">—</b></li>
+        <li id="wiz-key-row">✓ API key saved</li>
+        <li>✓ Translation proxy will autostart on toggle</li>
+        <li>✓ <code>CLAUDE_CODE_SKIP_LOGIN=1</code> will be set so the VSCode extension doesn't ask you to log in</li>
+      </ul>
+      <p class="muted small">After clicking Finish: <b>open a new terminal or VSCode window</b> for the env to take effect there.</p>
+      <div class="wizard-actions"><button class="btn" data-prev="3">← Back</button><button class="btn primary" id="wiz-finish">Finish & toggle ON</button></div>
+    </div>
+  </div>
+</div>
+
+<div id="banner" class="banner hidden">
+  <span id="banner-text">Set up your first preset to get started.</span>
+  <button class="link" id="banner-cta">Open setup wizard →</button>
+  <button class="link" id="banner-dismiss" title="dismiss">✕</button>
+</div>
+
+<main class="layout">
+  <aside class="sidebar">
+    <div class="side-head">
+      <h3>Presets</h3>
+      <button class="btn small" id="btn-new">+ New</button>
+    </div>
+    <ul id="preset-list"></ul>
+    <div class="side-foot">
+      <button class="link" id="btn-settings">⚙ Settings</button>
+      <button class="link" id="btn-export">⬇ Export</button>
+      <button class="link" id="btn-import">⬆ Import</button>
+    </div>
+  </aside>
+
+  <section class="detail">
+    <div class="tabs">
+      <button class="tab active" data-tab="general">General</button>
+      <button class="tab" data-tab="models">Models</button>
+      <button class="tab" data-tab="sampling">Sampling</button>
+      <button class="tab" data-tab="headers">Headers</button>
+      <button class="tab" data-tab="advanced">Advanced</button>
+      <button class="tab" data-tab="logs">Logs</button>
+    </div>
+
+    <div class="panel active" id="panel-general">
+      <h2 id="preset-title">—</h2>
+      <p class="muted" id="preset-notes"></p>
+      <div class="hint">
+        <b>How to use this tab:</b> set the friendly label, the provider's
+        base URL (e.g. <code>https://api.deepseek.com</code>), paste your
+        API key, and pick the request format. <b>OpenAI-compatible</b> is
+        right for almost every alternative provider; the local proxy will
+        translate Claude Code's Anthropic-format calls. Pick <b>Anthropic
+        (direct)</b> only when the upstream itself speaks
+        <code>/v1/messages</code>.
+      </div>
+      <div class="row"><label>Label</label><input id="f-label" /></div>
+      <div class="row"><label>Base URL</label><input id="f-base_url" placeholder="https://api.deepseek.com" /></div>
+      <div class="row">
+        <label>API key</label>
+        <input id="f-api_key" type="password" autocomplete="off" placeholder="sk-..." />
+        <button class="btn small" id="btn-save-key">Save key</button>
+      </div>
+      <div class="row">
+        <label>Format</label>
+        <div class="seg">
+          <label><input type="radio" name="format" value="openai" /> OpenAI-compatible (use proxy)</label>
+          <label><input type="radio" name="format" value="anthropic" /> Anthropic (direct)</label>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="btn-use">Use this preset</button>
+        <button class="btn" id="btn-save">Save changes</button>
+        <button class="btn danger" id="btn-delete">Delete</button>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-models">
+      <div class="hint">
+        <b>How to use this tab:</b> click <b>Refresh</b> to pull the live
+        model list from the provider (uses <code>GET /v1/models</code>, or
+        Ollama's <code>/api/tags</code>). Then pick the main model and a
+        smaller/faster one for Claude Code's "small fast" slot. The
+        dropdown is also a free-text input — type any model id the
+        provider serves.
+      </div>
+      <div class="row">
+        <label>Model</label>
+        <input list="models-list" id="f-model" placeholder="deepseek-v4" />
+        <button class="btn small" id="btn-refresh-models">Refresh</button>
+      </div>
+      <div class="row">
+        <label>Small / fast model</label>
+        <input list="models-list" id="f-small_fast_model" placeholder="deepseek-chat" />
+      </div>
+      <datalist id="models-list"></datalist>
+      <p class="muted" id="models-status">No model list loaded yet — click Refresh.</p>
+
+      <h3>Aliases</h3>
+      <p class="muted">Map names users type (e.g. <code>claude-sonnet-4</code>) to upstream model ids.</p>
+      <div id="aliases"></div>
+      <button class="btn small" id="btn-add-alias">+ Add alias</button>
+    </div>
+
+    <div class="panel" id="panel-sampling">
+      <div class="hint">
+        Defaults applied <b>only when Claude Code's request omits them</b>.
+        Leave blank to pass the request through unchanged. <code>top_k</code>
+        is silently dropped for OpenAI-style upstreams (they don't accept
+        it).
+      </div>
+      <div class="row"><label>temperature</label><input id="f-s-temperature" type="number" step="0.05" min="0" max="2" /></div>
+      <div class="row"><label>top_p</label><input id="f-s-top_p" type="number" step="0.05" min="0" max="1" /></div>
+      <div class="row"><label>top_k</label><input id="f-s-top_k" type="number" step="1" min="0" /></div>
+      <div class="row"><label>max_tokens</label><input id="f-s-max_tokens" type="number" step="1" min="1" /></div>
+      <div class="row"><label>request timeout (s)</label><input id="f-request_timeout_seconds" type="number" step="1" min="1" /></div>
+      <div class="row"><label>retries</label><input id="f-retries" type="number" step="1" min="0" /></div>
+      <div class="row"><label>retry backoff</label><input id="f-retry_backoff" type="number" step="0.1" min="1" /></div>
+    </div>
+
+    <div class="panel" id="panel-headers">
+      <div class="hint">
+        Extra HTTP headers added to every request to the upstream provider.
+        Common ones:
+        <ul>
+          <li><code>HTTP-Referer</code> + <code>X-Title</code> — required by
+          OpenRouter for proper attribution</li>
+          <li><code>accept: application/json</code> — required by some
+          NVIDIA NIMs endpoints</li>
+          <li>custom <code>X-…</code> headers your enterprise gateway
+          requires</li>
+        </ul>
+      </div>
+      <div id="headers"></div>
+      <button class="btn small" id="btn-add-header">+ Add header</button>
+    </div>
+
+    <div class="panel" id="panel-advanced">
+      <div class="hint">
+        Power-user knobs. <b>System prompt prefix/suffix</b> is bolted onto
+        the system message before forwarding (handy for jailbreak prompts
+        or persona text). <b>Disable streaming</b> falls back to a single
+        non-streamed response — try this first if you see corrupted output.
+        <b>Pass <code>cache_control</code></b> only matters on providers
+        that support Anthropic's prompt-cache markers.
+      </div>
+      <div class="row"><label>System prompt prefix</label><textarea id="f-system_prompt_prefix" rows="3"></textarea></div>
+      <div class="row"><label>System prompt suffix</label><textarea id="f-system_prompt_suffix" rows="3"></textarea></div>
+      <div class="row check"><label><input type="checkbox" id="f-disable_streaming" /> Disable streaming (for upstreams with buggy SSE)</label></div>
+      <div class="row check"><label><input type="checkbox" id="f-prompt_cache_passthrough" /> Pass <code>cache_control</code> markers to upstream</label></div>
+      <div class="row"><label>Notes</label><textarea id="f-notes" rows="3"></textarea></div>
+    </div>
+
+    <div class="panel" id="panel-logs">
+      <div class="hint">
+        Live tail of <code>~/.config/claude-oneclick/proxy.log</code>. If
+        Claude Code is misbehaving, click <b>Refresh</b> to see the most
+        recent upstream calls and any error responses.
+      </div>
+      <div class="logbar">
+        <button class="btn small" id="btn-refresh-log">Refresh</button>
+        <button class="btn small" id="btn-restart-proxy">Restart proxy</button>
+        <span class="muted" id="log-status"></span>
+      </div>
+      <pre id="log-tail"></pre>
+    </div>
+  </section>
+</main>
+
+<dialog id="settings-dialog">
+  <form method="dialog">
+    <h2>Settings</h2>
+    <p class="muted small">Global configuration. <b>Proxy</b> port change applies on save (the proxy restarts). <b>UI</b> port change takes effect the next time you run <code>claude-oneclick ui</code>.</p>
+    <div class="row"><label>UI port</label><input id="set-ui-port" type="number" /></div>
+    <div class="row"><label>Proxy port</label><input id="set-proxy-port" type="number" /></div>
+    <div class="row"><label>Theme</label>
+      <select id="set-theme"><option value="auto">auto</option><option value="light">light</option><option value="dark">dark</option></select>
+    </div>
+    <div class="row"><label>Log level</label>
+      <select id="set-log_level"><option>info</option><option>debug</option></select>
+    </div>
+    <div class="row check"><label><input type="checkbox" id="set-autostart" /> Autostart proxy when toggle is ON</label></div>
+    <div class="row check"><label><input type="checkbox" id="set-open_browser" /> Open browser when running <code>claude-oneclick ui</code></label></div>
+    <div class="row check"><label><input type="checkbox" id="set-skip_login" /> Skip Claude Code login (sets <code>CLAUDE_CODE_SKIP_LOGIN=1</code> for the CLI &amp; VSCode extension)</label></div>
+    <div class="row"><label>Model discovery cache TTL (s)</label><input id="set-cache_ttl" type="number" /></div>
+    <div class="actions">
+      <button class="btn" value="cancel">Cancel</button>
+      <button class="btn primary" id="btn-save-settings" value="save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
