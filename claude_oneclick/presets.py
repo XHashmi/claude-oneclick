@@ -87,30 +87,72 @@ BUILTIN_PRESETS: list[dict[str, Any]] = [
     },
 
     # --- NVIDIA NIMs ---
-    # One entry-point. NVIDIA hosts dozens of models — Llama 3.1 405B,
-    # Nemotron 70B, DeepSeek V4 Pro / V4 Flash / R1, GLM 4 / 4.5, Phi,
-    # Mistral, etc. — and the catalog updates often. Hardcoding cards
-    # for each ages badly. The wizard's step-4 model picker and the
-    # detail-tab "Refresh" button pull the live list from `/v1/models`
-    # so GLM and any future addition show up automatically.
+    # A few popular shortcuts hardcoded so users see something familiar
+    # without entering an API key first. Everything else (and any model
+    # NVIDIA adds in the future — DeepSeek V4 Pro/Flash variants, new
+    # GLM revisions, Phi-N, etc.) shows up via the "Browse live catalog"
+    # button in the sidebar, which calls /v1/models against
+    # integrate.api.nvidia.com. So the list is always current without
+    # me having to chase the catalog.
     {
-        "name": "nvidia-nims",
-        "label": "NVIDIA NIMs",
-        "subtitle": "Llama, Nemotron, DeepSeek V4 Pro/Flash, DeepSeek R1, GLM 4/4.5, Phi, Mistral, … (live-fetched)",
+        "name": "nim-llama-405b",
+        "label": "Llama 3.1 405B",
+        "subtitle": "via NVIDIA NIMs",
         "group": "NVIDIA NIMs",
         "tags": [],
         "base_url": "https://integrate.api.nvidia.com",
         "api_key": "",
-        # Sensible default — the wizard will replace this with whatever
-        # the user picks from the live list after entering an API key.
         "model": "meta/llama-3.1-405b-instruct",
         "small_fast_model": "meta/llama-3.1-8b-instruct",
         "format": "openai",
-        "notes": "NVIDIA's hosted-model catalog. After saving your API key, "
-                 "click 'Refresh model list' on the Models tab to pick from "
-                 "everything your account can use — including GLM, DeepSeek "
-                 "V4 Pro/Flash, Nemotron, Phi, etc. Get a key at "
-                 "build.nvidia.com.",
+        "notes": "NVIDIA-hosted Llama 3.1 405B. Get a key at build.nvidia.com.",
+        "builtin": True,
+    },
+    {
+        "name": "nim-nemotron-70b",
+        "label": "Nemotron 70B",
+        "subtitle": "via NVIDIA NIMs",
+        "group": "NVIDIA NIMs",
+        "tags": [],
+        "base_url": "https://integrate.api.nvidia.com",
+        "api_key": "",
+        "model": "nvidia/llama-3.1-nemotron-70b-instruct",
+        "small_fast_model": "meta/llama-3.1-8b-instruct",
+        "format": "openai",
+        "notes": "NVIDIA Nemotron-tuned Llama 70B.",
+        "builtin": True,
+    },
+    {
+        "name": "nim-deepseek-v4-pro",
+        "label": "DeepSeek V4 Pro",
+        "subtitle": "via NVIDIA NIMs",
+        "group": "NVIDIA NIMs",
+        "tags": ["reasoning"],
+        "base_url": "https://integrate.api.nvidia.com",
+        "api_key": "",
+        "model": "deepseek-ai/deepseek-v4-pro",
+        "small_fast_model": "meta/llama-3.1-8b-instruct",
+        "format": "openai",
+        "notes": "DeepSeek V4 Pro hosted on NVIDIA NIMs. If the upstream id "
+                 "differs from the default, click 'Refresh' on the Models "
+                 "tab to pick the live one.",
+        "reasoning_enabled": True,
+        "builtin": True,
+    },
+    {
+        "name": "nim-glm-45",
+        "label": "GLM 4.5",
+        "subtitle": "via NVIDIA NIMs — Zhipu's GLM",
+        "group": "NVIDIA NIMs",
+        "tags": [],
+        "base_url": "https://integrate.api.nvidia.com",
+        "api_key": "",
+        "model": "zhipuai/glm-4.5",
+        "small_fast_model": "meta/llama-3.1-8b-instruct",
+        "format": "openai",
+        "notes": "GLM 4.5 hosted on NVIDIA NIMs. The exact upstream id "
+                 "varies — click 'Browse live catalog' on the sidebar or "
+                 "'Refresh' on the Models tab to pick the right one.",
         "builtin": True,
     },
 

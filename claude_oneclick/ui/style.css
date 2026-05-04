@@ -93,8 +93,33 @@ body {
   padding: 14px 14px 4px; color: var(--muted);
   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px;
   cursor: default;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
 }
 #preset-list li.section-head:first-child { padding-top: 6px; }
+.browse-btn {
+  background: transparent; border: 1px solid var(--border); color: var(--muted);
+  font: inherit; font-size: 10px; font-weight: 600;
+  padding: 2px 8px; border-radius: 999px; cursor: pointer;
+  text-transform: none; letter-spacing: .3px;
+}
+.browse-btn:hover { color: var(--accent); border-color: var(--accent); }
+.browse-btn:disabled { opacity: .5; cursor: wait; }
+
+#preset-list li.section-extras { padding: 0 14px 4px 14px; }
+.extras-head {
+  font-size: 10px; color: var(--muted); padding: 4px 0;
+  text-transform: uppercase; letter-spacing: 1px;
+}
+.extras-empty {
+  font-size: 12px; color: var(--muted); padding: 4px 0; font-style: italic;
+}
+.extra-card {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 4px; border-radius: 4px; cursor: pointer;
+  font-size: 12px;
+}
+.extra-card:hover { background: var(--bg-3); }
+.extra-card .preset-name { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #preset-list li.preset-card {
   padding: 8px 14px 8px 11px;
   cursor: pointer; border-left: 3px solid transparent;

@@ -152,6 +152,9 @@ class _Handler(BaseHTTPRequestHandler):
             force = params.get("force", ["0"])[0] == "1"
             self._send_json(200, updater.check(force=force))
             return
+        if path == "/api/provider-models":
+            self._api_provider_models(params.get("group", [""])[0])
+            return
         self._send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
@@ -321,6 +324,48 @@ class _Handler(BaseHTTPRequestHandler):
         system_env.apply_state()
         _MODELS_CACHE.pop(name, None)
         self._send_json(200, {"ok": True})
+
+    def _api_provider_models(self, group: str) -> None:
+        """Live catalog for a whole provider group (e.g. "NVIDIA NIMs").
+
+        Picks the first preset in that group that has both a base_url and
+        a saved api_key, calls discover.list_models on it, and returns the
+        result. Lets the sidebar render "extra cards" beyond the
+        hardcoded shortcuts without the user having to pre-pick a
+        specific shortcut.
+        """
+        if not group:
+            self._send_json(400, {"error": "missing group"})
+            return
+        cfg = load()
+        candidate = None
+        for p in all_presets(cfg):
+            if p.get("group") == group and p.get("base_url"):
+                candidate = p
+                if p.get("api_key"):
+                    break  # prefer a preset with a key
+        if not candidate:
+            self._send_json(404, {"error": f"no preset with a base_url in group '{group}'"})
+            return
+        if not candidate.get("api_key") and "localhost" not in (candidate.get("base_url") or ""):
+            self._send_json(400, {"error": f"save an API key on any preset in '{group}' first"})
+            return
+        try:
+            models = discover.list_models_for_preset(candidate)
+        except discover.DiscoverError as e:
+            self._send_json(502, {"error": str(e)})
+            return
+        # Filter out the model ids that are already in hardcoded shortcuts
+        # so the "extra" list is truly extra.
+        already = {p.get("model") for p in all_presets(cfg) if p.get("group") == group}
+        extras = [m for m in models if m not in already]
+        self._send_json(200, {
+            "group": group,
+            "base_url": candidate["base_url"],
+            "all_models": models,
+            "extra_models": extras,
+            "via_preset": candidate["name"],
+        })
 
     def _api_models(self, name: str, force: bool) -> None:
         cfg = load()

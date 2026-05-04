@@ -100,10 +100,18 @@ function renderSidebar() {
   for (const section of SECTION_ORDER) {
     const items = groups[section];
     if (!items || !items.length) continue;
+
+    // Section header. Built-in provider sections (everything except
+    // Custom/Default) get a "↻ Browse" button that fetches the live
+    // catalog from the provider on click.
     const head = document.createElement("li");
     head.className = "section-head";
-    head.textContent = section;
+    const browsable = !["Custom", "Default"].includes(section);
+    head.innerHTML = browsable
+      ? `<span>${escape(section)}</span><button class="browse-btn" data-group="${escape(section)}" title="Fetch live model list from the provider">↻ Browse</button>`
+      : `<span>${escape(section)}</span>`;
     ul.appendChild(head);
+
     for (const p of items) {
       visible++;
       const li = document.createElement("li");
@@ -128,9 +136,95 @@ function renderSidebar() {
       li.onclick = () => { selected = p.name; renderSidebar(); renderDetail(); };
       ul.appendChild(li);
     }
+
+    // "more from provider" expansion area — populated when the user
+    // clicks ↻ Browse.
+    const more = document.createElement("li");
+    more.className = "section-extras";
+    more.dataset.group = section;
+    ul.appendChild(more);
+
+    // Re-attach previously fetched live models if we have them in
+    // memory so they survive search/redraw.
+    if (browsable && _liveCatalog[section]) renderLiveCatalog(section, _liveCatalog[section]);
   }
   $("#side-empty").classList.toggle("hidden", visible > 0);
 }
+
+// In-process cache of the live catalog by group, so re-renders don't
+// re-fetch and don't lose the expanded state.
+const _liveCatalog = {};
+
+function renderLiveCatalog(group, models) {
+  const host = document.querySelector(`.section-extras[data-group="${cssEscape(group)}"]`);
+  if (!host) return;
+  if (!models.length) {
+    host.innerHTML = `<div class="extras-empty">No additional models from this provider.</div>`;
+    return;
+  }
+  // Find the first preset in the group to seed base_url + api_key for
+  // any new preset created from a clicked live model.
+  const seed = state.presets.find(p => p.group === group && p.builtin) || {};
+  const sub = seed.base_url || "";
+  host.innerHTML = `<div class="extras-head">${models.length} more from provider</div>` +
+    models.map(m => `
+      <div class="extra-card" data-model="${escape(m)}" data-seed="${escape(seed.name || "")}">
+        <span class="key-dot none"></span>
+        <span class="preset-name mono">${escape(m)}</span>
+      </div>
+    `).join("");
+  for (const card of host.querySelectorAll(".extra-card")) {
+    card.onclick = () => useLiveModel(card.dataset.seed, card.dataset.model);
+  }
+}
+
+function cssEscape(s) {
+  return String(s).replace(/["\\]/g, "\\$&");
+}
+
+async function browseProvider(group) {
+  const btn = document.querySelector(`.browse-btn[data-group="${cssEscape(group)}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = "↻ Loading…"; }
+  try {
+    const r = await api("GET", `/api/provider-models?group=${encodeURIComponent(group)}`);
+    _liveCatalog[group] = r.extra_models || [];
+    renderLiveCatalog(group, _liveCatalog[group]);
+    toast(`Loaded ${r.all_models.length} models from ${group}`);
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "↻ Browse"; }
+  }
+}
+
+async function useLiveModel(seedPresetName, model) {
+  // Create (or update) a custom preset that points at the same provider
+  // as the seed but uses this exact model id, then select it.
+  const seed = state.presets.find(p => p.name === seedPresetName);
+  if (!seed) { toast("seed preset missing", "error"); return; }
+  const safeModel = String(model).replace(/[^A-Za-z0-9_-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  const name = `${seed.group.toLowerCase().replace(/\s+/g, "-")}-${safeModel}`.slice(0, 60);
+  try {
+    await api("POST", "/api/preset", {
+      name,
+      label: `${seed.label.split(" — ")[0]} · ${model}`,
+      base_url: seed.base_url,
+      model,
+      small_fast_model: seed.small_fast_model || model,
+      format: seed.format,
+      notes: `Created from the live catalog of ${seed.group}.`,
+    });
+    selected = name;
+    await refresh();
+    toast(`Created preset for ${model}`);
+  } catch (err) { toast(err.message, "error"); }
+}
+
+// Click delegation for the dynamic ↻ Browse buttons.
+document.addEventListener("click", (e) => {
+  const t = e.target.closest && e.target.closest(".browse-btn");
+  if (t && t.dataset.group) { e.stopPropagation(); browseProvider(t.dataset.group); }
+});
 
 function getSelected() {
   return state.presets.find(p => p.name === selected) || null;
