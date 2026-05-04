@@ -52,6 +52,31 @@ Write-Host "==> Installing claude-oneclick (pip --user -e)" -ForegroundColor Cya
 Write-Host "==> Wiring system env + VSCode + launcher" -ForegroundColor Cyan
 & $Python -m claude_oneclick _post_install
 
+# pip --user puts the entrypoint scripts (claude-oneclick.exe, coc.exe) in
+# %APPDATA%\Python\PythonX\Scripts, which is NOT on PATH out of the box.
+# Idempotently append it to the User-scope PATH so the next-opened terminal
+# resolves the command.
+Write-Host "==> Ensuring user-scripts directory is on PATH" -ForegroundColor Cyan
+$ScriptsDir = (& $Python -c "import sysconfig; print(sysconfig.get_path('scripts', scheme='nt_user'))").Trim()
+if ($ScriptsDir -and (Test-Path $ScriptsDir)) {
+    $current = [Environment]::GetEnvironmentVariable("Path", "User")
+    $entries = if ($current) { $current.Split(";") } else { @() }
+    $already = $false
+    foreach ($e in $entries) {
+        if ($e -and ($e.TrimEnd("\") -ieq $ScriptsDir.TrimEnd("\"))) { $already = $true; break }
+    }
+    if (-not $already) {
+        $new = if ($current) { "$current;$ScriptsDir" } else { $ScriptsDir }
+        [Environment]::SetEnvironmentVariable("Path", $new, "User")
+        Write-Host "    Added $ScriptsDir to your User PATH." -ForegroundColor Green
+        Write-Host "    Open a NEW terminal for it to take effect." -ForegroundColor Yellow
+    } else {
+        Write-Host "    Already on PATH ($ScriptsDir)" -ForegroundColor DarkGray
+    }
+} else {
+    Write-Host "    Could not resolve user-scripts dir; you may need to add it manually." -ForegroundColor Yellow
+}
+
 Write-Host ""
 Write-Host "==> Installed." -ForegroundColor Green
 Write-Host ""

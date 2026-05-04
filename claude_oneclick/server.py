@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from claude_oneclick import autostart, config as cfg_mod
-from claude_oneclick import discover, proxy, system_env
+from claude_oneclick import discover, proxy, system_env, updater
 from claude_oneclick.config import (
     all_presets,
     delete_preset,
@@ -148,6 +148,10 @@ class _Handler(BaseHTTPRequestHandler):
                 "location": autostart.describe(),
             })
             return
+        if path == "/api/update/check":
+            force = params.get("force", ["0"])[0] == "1"
+            self._send_json(200, updater.check(force=force))
+            return
         self._send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
@@ -187,6 +191,10 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/autostart":
             ok = autostart.enable() if body.get("enabled") else autostart.disable()
             self._send_json(200, {"ok": ok, "enabled": autostart.is_enabled()})
+            return
+        if path == "/api/update/apply":
+            result = updater.apply()
+            self._send_json(200 if result.get("ok") else 500, result)
             return
         self._send_json(404, {"error": "not found"})
 

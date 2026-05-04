@@ -237,6 +237,13 @@ code { background: var(--bg-3); padding: 1px 5px; border-radius: 4px; font-size:
 .banner button { margin-left: auto; }
 .banner #banner-dismiss { margin-left: 0; }
 
+.banner.update {
+  background: linear-gradient(90deg, rgba(251, 191, 36, .14), rgba(251, 191, 36, .04));
+  border-bottom: 1px solid var(--warn);
+}
+.banner.update .btn { margin-left: auto; }
+.banner.update #update-dismiss { margin-left: 0; }
+
 /* ---- topbar polish ---- */
 .topbar-right { display: flex; align-items: center; gap: 16px; }
 .kbd-hint { font-size: 11px; letter-spacing: .5px; }

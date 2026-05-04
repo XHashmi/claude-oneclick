@@ -7,7 +7,7 @@ import platform
 import sys
 from typing import Any
 
-from claude_oneclick import __version__, autostart, launcher, proxy, server, system_env
+from claude_oneclick import __version__, autostart, launcher, proxy, server, system_env, updater
 from claude_oneclick.config import (
     all_presets,
     delete_preset,
@@ -281,6 +281,39 @@ def _cmd_boot(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_update(args: argparse.Namespace) -> int:
+    if args.action == "check":
+        info = updater.check(force=True)
+        if info.get("error"):
+            print(f"error: {info['error']}", file=sys.stderr)
+            return 1
+        if info["has_update"]:
+            print(f"Update available — {info['current_sha'][:7]} → {info['latest_sha'][:7]}")
+            if info.get("latest_message"):
+                print(f"  '{info['latest_message']}'")
+            print("  Run `claude-oneclick update apply` to install.")
+            return 0
+        print("Up to date.")
+        return 0
+    if args.action == "apply":
+        info = updater.check(force=True)
+        if not info.get("has_update"):
+            print("Already up to date.")
+            return 0
+        if info.get("dirty"):
+            print("error: working tree has local edits. Commit or stash first.", file=sys.stderr)
+            return 1
+        print("Updating…")
+        result = updater.apply()
+        if result.get("ok"):
+            print("✓ Updated to", (result.get("current_sha") or "")[:7])
+            return 0
+        print(f"error: {result.get('error', 'update failed')}", file=sys.stderr)
+        return 1
+    print(f"unknown action: {args.action}", file=sys.stderr)
+    return 2
+
+
 def _cmd_post_install(args: argparse.Namespace) -> int:
     """Internal hook: install (or remove) shell rc / Windows env / VSCode / launcher."""
     from claude_oneclick import shell as posix_shell
@@ -381,6 +414,10 @@ def _build_parser() -> argparse.ArgumentParser:
     pas = sub.add_parser("autostart", help="enable/disable starting at system login")
     pas.add_argument("action", choices=["enable", "disable", "status"], nargs="?", default="status")
     pas.set_defaults(func=_cmd_autostart)
+
+    pup = sub.add_parser("update", help="check for / apply updates from GitHub")
+    pup.add_argument("action", choices=["check", "apply"], nargs="?", default="check")
+    pup.set_defaults(func=_cmd_update)
 
     pb = sub.add_parser("_boot", help=argparse.SUPPRESS)
     pb.set_defaults(func=_cmd_boot)

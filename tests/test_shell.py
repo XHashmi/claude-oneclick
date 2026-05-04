@@ -40,8 +40,8 @@ class ShellTests(unittest.TestCase):
             from claude_oneclick.config import set_active, set_enabled, update_override
             from claude_oneclick.shell import write_env_sh
             from claude_oneclick.paths import env_file
-            update_override("deepseek", {"api_key": "sk-xxx", "model": "deepseek-v4"})
-            set_active("deepseek")
+            update_override("deepseek-chat", {"api_key": "sk-xxx", "model": "deepseek-v4"})
+            set_active("deepseek-chat")
             set_enabled(True)
             env = write_env_sh()
             self.assertIn("ANTHROPIC_BASE_URL", env)

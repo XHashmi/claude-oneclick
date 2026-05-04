@@ -26,7 +26,7 @@
 
 <div id="onboarding" class="onboarding hidden">
   <div class="onboarding-card">
-    <div class="step-indicator"><span class="step active">1</span><span class="step">2</span><span class="step">3</span><span class="step">4</span></div>
+    <div class="step-indicator"><span class="step active">1</span><span class="step">2</span><span class="step">3</span><span class="step">4</span><span class="step">5</span></div>
 
     <div class="wizard-step active" data-step="1">
       <h2>Welcome to Claude OneClick</h2>
@@ -46,23 +46,33 @@
 
     <div class="wizard-step" data-step="3">
       <h2>Step 2 — Paste your API key</h2>
-      <p id="wiz-key-hint">Paste your provider's API key. It's stored in <code>~/.config/claude-oneclick/config.json</code> and never leaves your machine except when calling the upstream.</p>
+      <p id="wiz-key-hint">Paste your provider's API key. It's stored in <code>~/.config/claude-oneclick/config.json</code> (mode 0600) and never leaves your machine except when calling the upstream.</p>
       <input type="password" id="wiz-api-key" placeholder="sk-..." autocomplete="off" class="wizard-input" />
-      <p class="muted small">Tip: leave blank to set this later in the General tab.</p>
+      <p class="muted small">Tip: leave blank if your provider doesn't need one (e.g. local Ollama).</p>
       <div class="wizard-actions"><button class="btn" data-prev="2">← Back</button><button class="btn primary" data-next="4">Next →</button></div>
     </div>
 
     <div class="wizard-step" data-step="4">
-      <h2>Step 3 — Flip the toggle</h2>
+      <h2>Step 3 — Pick a model</h2>
+      <p>Pulled live from the provider — these are the models your account can actually use right now. The defaults reflect the preset you chose.</p>
+      <div class="row"><label>Main model</label><select id="wiz-main-model"></select></div>
+      <div class="row"><label>Small / fast model</label><select id="wiz-small-model"></select></div>
+      <p class="muted small" id="wiz-model-status">Loading…</p>
+      <div class="wizard-actions"><button class="btn" data-prev="3">← Back</button><button class="btn primary" data-next="5">Next →</button></div>
+    </div>
+
+    <div class="wizard-step" data-step="5">
+      <h2>Step 4 — Flip the toggle</h2>
       <p>You're set up. Click <b>Finish</b> to apply the env to every shell, VSCode terminal, and Claude Code session.</p>
       <ul class="checklist">
-        <li>✓ Active preset set to <b id="wiz-preset-name">—</b></li>
+        <li>✓ Active preset: <b id="wiz-preset-name">—</b></li>
         <li id="wiz-key-row">✓ API key saved</li>
+        <li>✓ Models: <b id="wiz-model-summary">—</b></li>
         <li>✓ Translation proxy will autostart on toggle</li>
-        <li>✓ <code>CLAUDE_CODE_SKIP_LOGIN=1</code> will be set so the VSCode extension doesn't ask you to log in</li>
+        <li>✓ <code>CLAUDE_CODE_SKIP_LOGIN=1</code> set so the VSCode extension doesn't ask you to log in</li>
       </ul>
       <p class="muted small">After clicking Finish: <b>open a new terminal or VSCode window</b> for the env to take effect there.</p>
-      <div class="wizard-actions"><button class="btn" data-prev="3">← Back</button><button class="btn primary" id="wiz-finish">Finish & toggle ON</button></div>
+      <div class="wizard-actions"><button class="btn" data-prev="4">← Back</button><button class="btn primary" id="wiz-finish">Finish &amp; toggle ON</button></div>
     </div>
   </div>
 </div>
@@ -71,6 +81,12 @@
   <span id="banner-text">Set up your first preset to get started.</span>
   <button class="link" id="banner-cta">Open setup wizard →</button>
   <button class="link" id="banner-dismiss" title="dismiss">✕</button>
+</div>
+
+<div id="update-banner" class="banner update hidden">
+  <span id="update-text">Update available.</span>
+  <button class="btn small primary" id="update-apply">Update now</button>
+  <button class="link" id="update-dismiss" title="dismiss">✕</button>
 </div>
 
 <main class="layout">

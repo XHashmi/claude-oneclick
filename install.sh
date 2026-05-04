@@ -73,14 +73,37 @@ echo "==> Installing claude-oneclick (pip --user -e)"
 echo "==> Wiring shell rc + VSCode + launcher"
 "$PY" -m claude_oneclick _post_install
 
-# Detect whether ~/.local/bin is already on PATH; warn if not.
+# Detect whether ~/.local/bin is on PATH; if not, install.sh injects an
+# `export PATH="$HOME/.local/bin:$PATH"` line into the same shell-rc block
+# our env file is sourced from. (Only fires if missing — idempotent.)
+LOCAL_BIN="$HOME/.local/bin"
 case ":$PATH:" in
-  *":$HOME/.local/bin:"*) ;;
+  *":$LOCAL_BIN:"*) ;;
   *)
-    echo
-    echo "NOTE: ~/.local/bin is not on your PATH. The 'claude-oneclick' command"
-    echo "      may not resolve until you add it. Most distros pick it up via"
-    echo "      ~/.profile after the next login."
+    echo "==> ~/.local/bin not on PATH — adding it to your shell rc"
+    "$PY" - <<'PY'
+import os, pathlib
+home = pathlib.Path.home()
+local_bin = home / ".local/bin"
+marker_begin = "# >>> claude-oneclick PATH >>>"
+marker_end = "# <<< claude-oneclick PATH <<<"
+block = (
+    f"\n{marker_begin}\n"
+    f'case ":$PATH:" in\n'
+    f'  *":{local_bin}:"*) ;;\n'
+    f'  *) export PATH="{local_bin}:$PATH" ;;\n'
+    f'esac\n'
+    f"{marker_end}\n"
+)
+for rc in (".bashrc", ".zshrc", ".profile"):
+    p = home / rc
+    if not p.exists():
+        continue
+    text = p.read_text(encoding="utf-8")
+    if marker_begin in text:
+        continue
+    p.write_text(text + block, encoding="utf-8")
+PY
     ;;
 esac
 

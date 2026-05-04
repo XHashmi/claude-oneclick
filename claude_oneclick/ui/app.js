@@ -523,36 +523,103 @@ function renderWizardProviders() {
     const card = document.createElement("div");
     card.className = "provider-card";
     card.dataset.name = p.name;
-    card.innerHTML = `<div class="pname">${escape(p.label || p.name)}</div><div class="pmeta">${escape(p.base_url || "")}</div>`;
+    const tags = (p.tags || []).map(t => `<span class="tagchip">${escape(t)}</span>`).join("");
+    card.innerHTML = `
+      <div class="pname-row">
+        <span class="pname">${escape(p.label || p.name)}</span>
+        <span class="ptags">${tags}</span>
+      </div>
+      <div class="psub">${escape(p.subtitle || "")}</div>
+      <div class="purl">${escape(p.base_url || "")}</div>
+    `;
     card.onclick = () => {
       wizSelectedPreset = p.name;
       for (const c of $$(".provider-card")) c.classList.toggle("selected", c.dataset.name === p.name);
       $("#wiz-next-2").disabled = false;
-      // Tailor the API-key hint by provider.
-      const hints = {
-        "deepseek": "Get a DeepSeek key at platform.deepseek.com → API Keys.",
-        "deepseek-v4-pro": "Get a DeepSeek key at platform.deepseek.com → API Keys. Pro is the larger reasoning model.",
-        "deepseek-v4-flash": "Get a DeepSeek key at platform.deepseek.com → API Keys. Flash is the smaller, faster reasoning model.",
-        "deepseek-reasoner": "Get a DeepSeek key at platform.deepseek.com → API Keys.",
-        "nvidia-nims-llama": "Get an NVIDIA key at build.nvidia.com → your account → API keys.",
-        "nvidia-nims-nemotron": "Get an NVIDIA key at build.nvidia.com → your account → API keys.",
-        "nvidia-nims-deepseek-r1": "Get an NVIDIA key at build.nvidia.com → your account → API keys.",
-        "openrouter": "Get an OpenRouter key at openrouter.ai/keys.",
-        "groq": "Get a Groq key at console.groq.com/keys.",
-        "together": "Get a Together AI key at api.together.xyz/settings/api-keys.",
-        "fireworks": "Get a Fireworks key at fireworks.ai/account/api-keys.",
-        "ollama": "Local Ollama needs no API key — you can leave this blank.",
+      // Tailor the API-key hint by base_url so we don't have to keep a
+      // hardcoded list in sync with preset names.
+      const KEY_HINTS_BY_HOST = {
+        "api.deepseek.com": "Get a DeepSeek key at platform.deepseek.com → API Keys.",
+        "integrate.api.nvidia.com": "Get an NVIDIA key at build.nvidia.com → your account → API keys.",
+        "openrouter.ai": "Get an OpenRouter key at openrouter.ai/keys.",
+        "api.groq.com": "Get a Groq key at console.groq.com/keys.",
+        "api.together.xyz": "Get a Together AI key at api.together.xyz/settings/api-keys.",
+        "api.fireworks.ai": "Get a Fireworks key at fireworks.ai/account/api-keys.",
+        "localhost": "Local Ollama needs no API key — you can leave this blank.",
+        "127.0.0.1": "Local Ollama needs no API key — you can leave this blank.",
       };
-      $("#wiz-key-hint").innerHTML = hints[p.name] || `Paste your provider's API key.`;
+      let host = "";
+      try { host = new URL(p.base_url).hostname; } catch (_) {}
+      $("#wiz-key-hint").textContent = KEY_HINTS_BY_HOST[host] || "Paste your provider's API key.";
       $("#wiz-preset-name").textContent = p.label || p.name;
     };
     grid.appendChild(card);
   }
 }
 
+// ---- Wizard step 4: live model picker ------------------------------------
+
+async function loadWizardModels() {
+  const status = $("#wiz-model-status");
+  const main = $("#wiz-main-model");
+  const small = $("#wiz-small-model");
+  main.innerHTML = ""; small.innerHTML = "";
+  if (!wizSelectedPreset) return;
+  const preset = state.presets.find(p => p.name === wizSelectedPreset) || {};
+  const defaultMain = preset.model || "";
+  const defaultSmall = preset.small_fast_model || preset.model || "";
+
+  // Save the API key first so /api/models can authenticate.
+  const key = $("#wiz-api-key").value.trim();
+  if (key) {
+    try { await api("POST", "/api/keys", { name: wizSelectedPreset, api_key: key }); }
+    catch (_) {}
+  }
+
+  status.textContent = "Loading models from " + (preset.base_url || "provider") + "…";
+  let models = [];
+  try {
+    const r = await api("GET", `/api/models?name=${encodeURIComponent(wizSelectedPreset)}&force=1`);
+    models = r.models || [];
+    status.textContent = `${models.length} model${models.length === 1 ? "" : "s"} returned by the provider.`;
+  } catch (err) {
+    status.textContent = `Couldn't fetch live model list (${err.message}). Falling back to the preset's defaults — you can refresh later on the Models tab.`;
+    if (defaultMain) models.push(defaultMain);
+    if (defaultSmall && !models.includes(defaultSmall)) models.push(defaultSmall);
+  }
+
+  // Populate dropdowns. Pre-select the preset's defaults if present;
+  // otherwise pick the first/last as sensible fallbacks.
+  for (const m of models) {
+    main.appendChild(new Option(m, m));
+    small.appendChild(new Option(m, m));
+  }
+  if (models.includes(defaultMain)) main.value = defaultMain;
+  if (models.includes(defaultSmall)) small.value = defaultSmall;
+  // If the dropdowns ended up empty (provider returned nothing AND no
+  // defaults), let the user type a value.
+  if (!models.length) {
+    for (const sel of [main, small]) {
+      sel.outerHTML = sel.outerHTML.replace("<select", '<input list="wiz-models-list"').replace("</select>", "");
+    }
+  }
+  $("#wiz-model-summary").textContent =
+    `${main.value || "(none)"} + ${small.value || main.value || "(none)"}`;
+}
+
+// Update the summary live as the user changes selections.
+document.addEventListener("change", (e) => {
+  if (e.target && (e.target.id === "wiz-main-model" || e.target.id === "wiz-small-model")) {
+    const m = $("#wiz-main-model").value;
+    const s = $("#wiz-small-model").value || m;
+    $("#wiz-model-summary").textContent = `${m || "(none)"} + ${s || "(none)"}`;
+  }
+});
+
 for (const b of $$("[data-next]")) b.addEventListener("click", () => {
   const target = Number(b.dataset.next);
   if (target === 2 && !$("#wiz-providers").children.length) renderWizardProviders();
+  if (target === 4) loadWizardModels();
   gotoStep(target);
 });
 for (const b of $$("[data-prev]")) b.addEventListener("click", () => gotoStep(Number(b.dataset.prev)));
@@ -562,8 +629,20 @@ $("#wiz-skip").addEventListener("click", () => { localStorage.setItem(WIZ_DISMIS
 $("#wiz-finish").addEventListener("click", async () => {
   if (!wizSelectedPreset) return;
   try {
+    // Save the API key (re-save on finish in case the user edited step 3).
     const key = $("#wiz-api-key").value;
     if (key) await api("POST", "/api/keys", { name: wizSelectedPreset, api_key: key });
+    // Persist the model picks if the user changed them in step 4.
+    const mainEl = $("#wiz-main-model"); const smallEl = $("#wiz-small-model");
+    const mainVal = (mainEl && mainEl.value) || "";
+    const smallVal = (smallEl && smallEl.value) || mainVal;
+    if (mainVal) {
+      await api("POST", "/api/preset", {
+        name: wizSelectedPreset,
+        model: mainVal,
+        small_fast_model: smallVal,
+      });
+    }
     await api("POST", "/api/use", { name: wizSelectedPreset });
     await api("POST", "/api/toggle", { enabled: true });
     localStorage.setItem(WIZ_DISMISSED_KEY, "1");
@@ -577,6 +656,62 @@ $("#wiz-finish").addEventListener("click", async () => {
 $("#banner-cta").addEventListener("click", () => { localStorage.removeItem(WIZ_DISMISSED_KEY); showWizard(); });
 $("#banner-dismiss").addEventListener("click", () => { localStorage.setItem(WIZ_DISMISSED_KEY, "1"); hideBanner(); });
 
+// ---- Update checker -----------------------------------------------------
+
+const UPDATE_DISMISSED_KEY = "coc.update_dismissed_sha";
+
+async function checkForUpdate(force = false) {
+  try {
+    const info = await api("GET", `/api/update/check${force ? "?force=1" : ""}`);
+    const dismissed = localStorage.getItem(UPDATE_DISMISSED_KEY) || "";
+    if (info.has_update && info.latest_sha && info.latest_sha !== dismissed) {
+      const short = info.latest_sha.slice(0, 7);
+      const cur = (info.current_sha || "").slice(0, 7);
+      const msg = info.latest_message ? ` — "${info.latest_message}"` : "";
+      $("#update-text").innerHTML = `<b>Update available</b> (${cur} → ${short})${escape(msg)}`;
+      $("#update-banner").classList.remove("hidden");
+      $("#update-banner").dataset.sha = info.latest_sha;
+    } else {
+      $("#update-banner").classList.add("hidden");
+    }
+    return info;
+  } catch (_) {
+    return null;
+  }
+}
+
+$("#update-dismiss").addEventListener("click", () => {
+  const sha = $("#update-banner").dataset.sha;
+  if (sha) localStorage.setItem(UPDATE_DISMISSED_KEY, sha);
+  $("#update-banner").classList.add("hidden");
+});
+
+$("#update-apply").addEventListener("click", async () => {
+  const ok = await confirmDialog(
+    "Apply update?",
+    "This runs `git pull` and re-installs the package. Anything in flight " +
+    "(an open Claude Code session, a streaming proxy request) finishes first; " +
+    "the proxy restarts after.",
+    "Update now"
+  );
+  if (!ok) return;
+  $("#update-apply").disabled = true;
+  $("#update-text").textContent = "Updating…";
+  try {
+    const r = await api("POST", "/api/update/apply", {});
+    if (r.ok) {
+      toast("Updated. Reloading the UI…");
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      toast(r.error || "update failed", "error");
+      $("#update-apply").disabled = false;
+    }
+  } catch (err) {
+    toast(err.message, "error");
+    $("#update-apply").disabled = false;
+  }
+});
+
 // --- bootstrap -------------------------------------------------------------
 
 (async () => {
@@ -584,6 +719,10 @@ $("#banner-dismiss").addEventListener("click", () => { localStorage.setItem(WIZ_
     await refresh();
     if (shouldShowWizard()) showWizard();
     else showBanner();
+    // Kick off an update check on first load (cached server-side for 1h).
+    checkForUpdate(false);
   } catch (err) { toast(err.message, "error"); }
 })();
 setInterval(() => refresh(false).catch(() => {}), 5000);
+// Re-check for updates every 6 hours.
+setInterval(() => checkForUpdate(false).catch(() => {}), 6 * 60 * 60 * 1000);

@@ -116,7 +116,7 @@ class StateRedactionTests(unittest.TestCase):
     def test_state_redacts_api_keys(self):
         with isolated_home():
             from claude_oneclick.config import update_override
-            update_override("deepseek", {"api_key": "sk-supersecret"})
+            update_override("deepseek-chat", {"api_key": "sk-supersecret"})
             port = _free_port()
             from claude_oneclick.config import load, save
             cfg = load(); cfg["ui"]["port"] = port; save(cfg)
@@ -124,7 +124,7 @@ class StateRedactionTests(unittest.TestCase):
             r = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/state", timeout=2)
             data = json.loads(r.read().decode("utf-8"))
             for p in data["presets"]:
-                if p["name"] == "deepseek":
+                if p["name"] == "deepseek-chat":
                     self.assertEqual(p["api_key"], "")
                     self.assertTrue(p["api_key_set"])
                     return
