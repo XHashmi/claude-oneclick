@@ -432,24 +432,21 @@ def anthropic_to_openai_request(req: dict[str, Any], preset: dict[str, Any]) -> 
     #
     # Precedence (most specific first):
     #   1. If the request's model is in `model_aliases`, use the mapped value.
-    #   2. If the request's model is a Claude id (claude-sonnet-4, claude-
-    #      haiku-4.5, …) we override to the preset's configured model —
-    #      sending a Claude id to DeepSeek/NIMs/etc. is a guaranteed 404.
-    #      This is what makes Claude Code's "/model claude-sonnet-4" inside
-    #      a session "do the right thing" on a custom provider.
-    #   3. Otherwise trust whatever the request asked for (the user may
-    #      have typed `meta/llama-3.1-8b-instruct` explicitly).
-    #   4. Fall back to the preset's `model` if the request didn't specify.
+    #   2. **Otherwise the preset's configured model wins.** Claude Code
+    #      can request specific models for subagents, compaction, memory
+    #      updates, or via /model, and those ids may or may not exist on
+    #      the user's chosen provider. If the user picked "DeepSeek V4
+    #      Flash" they want V4 Flash for every call — including the
+    #      background ones — full stop. Letting Claude Code's
+    #      hard-coded Haiku id (or a leftover V4 Pro id from a previous
+    #      session) leak through silently splits the user's actual cost
+    #      and behavior across two unrelated models.
     req_model = req.get("model") or ""
     aliases = preset.get("model_aliases") or {}
     if req_model in aliases:
         model = aliases[req_model]
-    elif req_model.lower().startswith("claude-") or req_model.lower().startswith("anthropic/claude"):
-        model = preset.get("model") or req_model
-    elif req_model:
-        model = req_model
     else:
-        model = preset.get("model") or ""
+        model = preset.get("model") or req_model
 
     out: dict[str, Any] = {
         "model": model,
@@ -1318,6 +1315,14 @@ class _Handler(BaseHTTPRequestHandler):
         retries = int(preset.get("retries") or 0)
         backoff = float(preset.get("retry_backoff") or 1.5)
 
+        # If Claude Code asked for a different model than the preset
+        # provides, log the override so the user can see it in the
+        # diagnostic log. Useful for catching subagent/compaction model
+        # leakage like the V4 Pro slipping through on a V4 Flash preset.
+        client_model = req.get("model") or ""
+        if client_model and client_model != oai_req.get("model"):
+            log.info("model override: client asked for %r, sending %r per preset",
+                     client_model, oai_req.get("model"))
         log.info("→ upstream %s model=%s stream=%s", url, oai_req.get("model"), wants_stream)
 
         up, fail_status, fail_text = _attempt_with_retries(
