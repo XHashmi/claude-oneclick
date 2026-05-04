@@ -447,8 +447,77 @@ for (const t of $$(".tab")) {
     for (const x of $$(".tab")) x.classList.toggle("active", x === t);
     for (const p of $$(".panel")) p.classList.toggle("active", p.id === "panel-" + t.dataset.tab);
     if (t.dataset.tab === "logs") refreshLog();
+    if (t.dataset.tab === "wiring") refreshDiagnose();
   });
 }
+
+// --- Wiring (self-diagnostic) ---------------------------------------------
+
+let _wiringInterval = null;
+
+async function refreshDiagnose() {
+  // Auto-poll every 4s while the wiring tab is the active panel.
+  if (_wiringInterval) clearInterval(_wiringInterval);
+  _wiringInterval = setInterval(() => {
+    if (document.querySelector("#panel-wiring.active")) doDiagnose();
+    else { clearInterval(_wiringInterval); _wiringInterval = null; }
+  }, 4000);
+  await doDiagnose();
+}
+
+async function doDiagnose() {
+  try {
+    const r = await api("GET", "/api/diagnose");
+    paintDiagnose(r);
+  } catch (err) {
+    $("#wiring-overall").className = "wiring-overall error";
+    $("#wiring-overall").textContent = "diagnostic call failed: " + err.message;
+  }
+}
+
+function paintDiagnose(r) {
+  const overallEl = $("#wiring-overall");
+  const overall = r.overall || "off";
+  overallEl.className = "wiring-overall " + overall;
+  const summary = {
+    ok:    `✓ All wired up — Claude Code is routed to ${r.active_label || r.active}${r.active_model ? " (" + r.active_model + ")" : ""}`,
+    warn:  `⚠ Mostly working — see the amber section below`,
+    error: `✗ Something's broken — see the red section below`,
+    off:   `Not currently routing (toggle is OFF or the Anthropic default preset is active)`,
+  };
+  overallEl.textContent = summary[overall] || overall;
+
+  // Nodes
+  setNode("provider", r.nodes && r.nodes.provider);
+  setNode("proxy", r.nodes && r.nodes.proxy);
+  setNode("claude", r.nodes && r.nodes.claude);
+  setWire("provider_proxy", r.wires && r.wires.provider_proxy);
+  setWire("proxy_claude", r.wires && r.wires.proxy_claude);
+
+  // Raw JSON for support / curiosity.
+  $("#wiring-raw").textContent = JSON.stringify(r, null, 2);
+}
+
+const _statusClasses = ["ok", "warn", "error", "off"];
+
+function setNode(id, info) {
+  const el = $("#wnode-" + id);
+  if (!el) return;
+  for (const c of _statusClasses) el.classList.remove(c);
+  if (info && info.status) el.classList.add(info.status);
+  $(`#wnode-${id}-detail`).textContent = (info && info.detail) || "—";
+}
+
+function setWire(id, info) {
+  const el = $("#wwire-" + id);
+  if (!el) return;
+  for (const c of _statusClasses) el.classList.remove(c);
+  if (info && info.status) el.classList.add(info.status);
+  const detailEl = $(`#wwire-${id}-detail`);
+  if (detailEl) detailEl.textContent = (info && info.detail) || "";
+}
+
+$("#btn-rediagnose").addEventListener("click", doDiagnose);
 
 // --- settings dialog -------------------------------------------------------
 
@@ -477,23 +546,56 @@ async function populateVersionInfo() {
 
 $("#set-update-check").addEventListener("click", async () => {
   const btn = $("#set-update-check");
+  const apply = $("#set-update-apply");
   btn.disabled = true; btn.textContent = "Checking…";
+  apply.classList.add("hidden");
   try {
     const r = await api("GET", "/api/update/check?force=1");
     const cur = (r.current_sha || "").slice(0, 7);
-    $("#set-version-info").textContent = `${r.version}${cur ? " · " + cur : ""}`;
+    $("#set-version-info").textContent = `${r.version}${cur ? " · " + cur : ""}${r.is_git ? "" : " (not a git checkout — self-update disabled)"}`;
     if (r.has_update) {
-      $("#set-update-status").innerHTML = `<b class="warn-text">Update available</b> — ${(r.latest_sha || "").slice(0, 7)}. Close Settings to see the banner.`;
-      // Re-trigger the banner check so it shows even if previously dismissed.
+      const latest = (r.latest_sha || "").slice(0, 7);
+      const msg = r.latest_message ? ` · "${escape(r.latest_message)}"` : "";
+      $("#set-update-status").innerHTML = `<b class="warn-text">Update available</b> — ${cur} → ${latest}${msg}`;
+      apply.classList.remove("hidden");
+      // Also unblock the topbar banner if the user previously dismissed
+      // this same SHA.
       localStorage.removeItem(UPDATE_DISMISSED_KEY);
       checkForUpdate(true);
+    } else if (r.error) {
+      $("#set-update-status").textContent = r.error;
     } else {
-      $("#set-update-status").textContent = r.error || "You're up to date.";
+      $("#set-update-status").innerHTML = '<b style="color: var(--accent-2)">✓ You\'re up to date</b>';
     }
   } catch (err) {
     $("#set-update-status").textContent = err.message;
   } finally {
-    btn.disabled = false; btn.textContent = "Check now";
+    btn.disabled = false; btn.textContent = "Check for updates";
+  }
+});
+
+$("#set-update-apply").addEventListener("click", async () => {
+  const apply = $("#set-update-apply");
+  const ok = await confirmDialog(
+    "Apply update?",
+    "This runs `git pull --ff-only` followed by `pip install --user -e .`. Anything in flight finishes first; the proxy is restarted after.",
+    "Update now"
+  );
+  if (!ok) return;
+  apply.disabled = true; apply.textContent = "Updating…";
+  $("#set-update-status").textContent = "running git pull + pip install…";
+  try {
+    const r = await api("POST", "/api/update/apply", {});
+    if (r.ok) {
+      $("#set-update-status").innerHTML = '<b style="color: var(--accent-2)">✓ Updated. Reloading…</b>';
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      $("#set-update-status").textContent = r.error || "update failed";
+      apply.disabled = false; apply.textContent = "Update now";
+    }
+  } catch (err) {
+    $("#set-update-status").textContent = err.message;
+    apply.disabled = false; apply.textContent = "Update now";
   }
 });
 

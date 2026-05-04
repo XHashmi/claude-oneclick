@@ -114,6 +114,7 @@
       <button class="tab" data-tab="sampling">Sampling</button>
       <button class="tab" data-tab="headers">Headers</button>
       <button class="tab" data-tab="advanced">Advanced</button>
+      <button class="tab" data-tab="wiring">⚡ Wiring</button>
       <button class="tab" data-tab="logs">Logs</button>
     </div>
 
@@ -267,6 +268,76 @@
       <div class="row"><label>Notes</label><textarea id="f-notes" rows="3"></textarea></div>
     </div>
 
+    <div class="panel" id="panel-wiring">
+      <div class="hint">
+        <b>Self-test for the whole pipeline.</b> Three nodes
+        (Provider → OneClick proxy → Claude Code) connected by two
+        wires. Each part lights up green when its specific check
+        passes, amber for warnings, red with the exact reason when
+        broken. Click <b>Re-test</b> to refresh.
+      </div>
+
+      <div class="wiring-bar">
+        <span id="wiring-overall" class="wiring-overall">checking…</span>
+        <button class="btn small" id="btn-rediagnose">↻ Re-test</button>
+      </div>
+
+      <div class="wiring-stage">
+        <!-- Provider -->
+        <div class="wnode" id="wnode-provider">
+          <div class="wnode-icon">🌐</div>
+          <div class="wnode-name">Provider</div>
+          <div class="wnode-detail" id="wnode-provider-detail">—</div>
+        </div>
+
+        <!-- Wire 1 -->
+        <div class="wwire" id="wwire-provider_proxy">
+          <span class="wwire-line"></span>
+          <span class="wwire-pulse"></span>
+          <div class="wwire-detail" id="wwire-provider_proxy-detail">—</div>
+        </div>
+
+        <!-- Proxy bulb -->
+        <div class="wnode wnode-bulb" id="wnode-proxy" title="Translation proxy">
+          <div class="wnode-icon bulb">
+            <svg viewBox="0 0 64 80" width="56" height="70" aria-hidden="true">
+              <defs>
+                <radialGradient id="bulbGlow" cx="50%" cy="40%" r="50%">
+                  <stop offset="0%" stop-color="currentColor" stop-opacity=".9"/>
+                  <stop offset="100%" stop-color="currentColor" stop-opacity="0"/>
+                </radialGradient>
+              </defs>
+              <circle class="bulb-glass" cx="32" cy="32" r="22" fill="url(#bulbGlow)" stroke="currentColor" stroke-width="2"/>
+              <path class="bulb-filament" d="M 22 32 Q 27 26 32 32 Q 37 38 42 32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+              <rect class="bulb-base" x="26" y="54" width="12" height="10" fill="currentColor" opacity=".3"/>
+              <rect class="bulb-base" x="28" y="64" width="8" height="6" fill="currentColor" opacity=".5"/>
+            </svg>
+          </div>
+          <div class="wnode-name">OneClick</div>
+          <div class="wnode-detail" id="wnode-proxy-detail">—</div>
+        </div>
+
+        <!-- Wire 2 -->
+        <div class="wwire" id="wwire-proxy_claude">
+          <span class="wwire-line"></span>
+          <span class="wwire-pulse reverse"></span>
+          <div class="wwire-detail" id="wwire-proxy_claude-detail">—</div>
+        </div>
+
+        <!-- Claude Code -->
+        <div class="wnode" id="wnode-claude">
+          <div class="wnode-icon">⌨</div>
+          <div class="wnode-name">Claude Code</div>
+          <div class="wnode-detail" id="wnode-claude-detail">—</div>
+        </div>
+      </div>
+
+      <details class="wiring-meta">
+        <summary>Raw diagnostic JSON</summary>
+        <pre id="wiring-raw" class="mono"></pre>
+      </details>
+    </div>
+
     <div class="panel" id="panel-logs">
       <div class="hint">
         Live tail of <code>~/.config/claude-oneclick/proxy.log</code>. If
@@ -311,12 +382,18 @@
     <div class="row check"><label><input type="checkbox" id="set-skip_login" /> Skip Claude Code login (sets <code>CLAUDE_CODE_SKIP_LOGIN=1</code> for the CLI &amp; VSCode extension)</label></div>
     <div class="row check"><label><input type="checkbox" id="set-autostart-boot" /> Start Claude OneClick when the system starts <span class="muted small" id="set-autostart-where"></span></label></div>
     <hr class="settings-sep" />
+    <h3 class="settings-section">Updates</h3>
     <div class="row settings-version">
-      <label>Version</label>
+      <label>Installed</label>
       <span id="set-version-info">—</span>
-      <button class="btn small" id="set-update-check" type="button">Check now</button>
+      <button class="btn small" id="set-update-check" type="button">Check for updates</button>
     </div>
-    <p class="muted small" id="set-update-status"></p>
+    <div class="row settings-version">
+      <label>Status</label>
+      <span id="set-update-status" class="muted small">Click "Check for updates" to query GitHub.</span>
+      <button class="btn small primary hidden" id="set-update-apply" type="button">Update now</button>
+    </div>
+    <p class="muted small">Updates compare your local <code>git rev-parse HEAD</code> to <code>github.com/xhashmi/claude-oneclick</code>. Self-update requires a git checkout (use <code>git clone</code>, not the ZIP).</p>
     <div class="row"><label>Model discovery cache TTL (s)</label><input id="set-cache_ttl" type="number" /></div>
     <div class="actions">
       <button class="btn" value="cancel">Cancel</button>

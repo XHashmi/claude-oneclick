@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from claude_oneclick import autostart, config as cfg_mod
+from claude_oneclick import diagnose as diagnose_mod
 from claude_oneclick import discover, proxy, system_env, updater
 from claude_oneclick.config import (
     all_presets,
@@ -154,6 +155,9 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/provider-models":
             self._api_provider_models(params.get("group", [""])[0])
+            return
+        if path == "/api/diagnose":
+            self._send_json(200, diagnose_mod.diagnose())
             return
         self._send_json(404, {"error": "not found"})
 
