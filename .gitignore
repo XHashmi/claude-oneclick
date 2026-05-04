@@ -14,3 +14,5 @@ venv/
 .mypy_cache/
 .ruff_cache/
 node_modules/
+# Auto-generated at install time; pinned to whatever commit was deployed.
+claude_oneclick/_buildinfo.py

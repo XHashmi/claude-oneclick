@@ -471,7 +471,7 @@
       <span id="set-update-status" class="muted small">Click "Check for updates" to query GitHub.</span>
       <button class="btn small primary hidden" id="set-update-apply" type="button">Update now</button>
     </div>
-    <p class="muted small">Updates compare your local <code>git rev-parse HEAD</code> to <code>github.com/xhashmi/claude-oneclick</code>. Self-update requires a git checkout (use <code>git clone</code>, not the ZIP).</p>
+    <p class="muted small">Updates compare your install's commit SHA to <code>github.com/xhashmi/claude-oneclick</code>. Works for both <code>git clone</code> installs (uses <code>git pull</code>) and ZIP installs (downloads the latest branch ZIP and extracts in place).</p>
     <div class="row"><label>Model discovery cache TTL (s)</label><input id="set-cache_ttl" type="number" /></div>
     <div class="actions">
       <button class="btn" value="cancel">Cancel</button>
