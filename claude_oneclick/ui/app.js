@@ -82,21 +82,52 @@ function renderSidebar() {
   const ul = $("#preset-list");
   ul.innerHTML = "";
   const q = ($("#preset-search") && $("#preset-search").value || "").toLowerCase().trim();
-  let visible = 0;
+
+  // Group presets by `group` field; user-created presets fall under
+  // "Custom". Section order is fixed for stability.
+  const SECTION_ORDER = ["DeepSeek", "NVIDIA NIMs", "Other hosted", "Local", "Custom", "Default"];
+  const groups = {};
   for (const p of state.presets) {
     if (q && !((p.label || p.name).toLowerCase().includes(q) ||
                p.name.toLowerCase().includes(q) ||
-               (p.base_url || "").toLowerCase().includes(q))) continue;
-    visible++;
-    const li = document.createElement("li");
-    li.className = (p.name === selected ? "selected " : "") + (p.name === state.active ? "active" : "");
-    li.innerHTML = `
-      <span class="preset-name">${escape(p.label || p.name)}</span>
-      <span class="preset-base">${escape(p.base_url || (p.format === "anthropic" ? "(anthropic default)" : "(no base URL)"))}</span>
-      <span class="badge">${p.builtin ? "built-in" : "custom"}${p.api_key_set ? " · key set" : " · no key"}${p.reasoning_enabled ? " · reasoning" : ""}</span>
-    `;
-    li.onclick = () => { selected = p.name; renderSidebar(); renderDetail(); };
-    ul.appendChild(li);
+               (p.base_url || "").toLowerCase().includes(q) ||
+               (p.subtitle || "").toLowerCase().includes(q))) continue;
+    const gname = p.builtin ? (p.group || "Other hosted") : "Custom";
+    (groups[gname] ||= []).push(p);
+  }
+
+  let visible = 0;
+  for (const section of SECTION_ORDER) {
+    const items = groups[section];
+    if (!items || !items.length) continue;
+    const head = document.createElement("li");
+    head.className = "section-head";
+    head.textContent = section;
+    ul.appendChild(head);
+    for (const p of items) {
+      visible++;
+      const li = document.createElement("li");
+      li.className = "preset-card" +
+        (p.name === selected ? " selected" : "") +
+        (p.name === state.active ? " active" : "");
+      const tags = (p.tags || [])
+        .map(t => `<span class="tagchip">${escape(t)}</span>`).join("");
+      const dot = p.format === "anthropic"
+        ? '<span class="key-dot none" title="no key needed"></span>'
+        : (p.api_key_set
+            ? '<span class="key-dot ok" title="API key saved"></span>'
+            : '<span class="key-dot warn" title="API key not set"></span>');
+      li.innerHTML = `
+        <div class="card-row1">
+          ${dot}
+          <span class="preset-name">${escape(p.label || p.name)}</span>
+          <span class="card-tags">${tags}</span>
+        </div>
+        <div class="card-row2 muted">${escape(p.subtitle || "")}</div>
+      `;
+      li.onclick = () => { selected = p.name; renderSidebar(); renderDetail(); };
+      ul.appendChild(li);
+    }
   }
   $("#side-empty").classList.toggle("hidden", visible > 0);
 }
