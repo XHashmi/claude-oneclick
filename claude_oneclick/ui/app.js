@@ -453,6 +453,50 @@ for (const t of $$(".tab")) {
 // --- settings dialog -------------------------------------------------------
 
 const dlg = $("#settings-dialog");
+async function populateVersionInfo() {
+  const info = $("#set-version-info");
+  const status = $("#set-update-status");
+  info.textContent = "loading…";
+  status.textContent = "";
+  try {
+    const r = await api("GET", "/api/update/check");
+    const cur = (r.current_sha || "").slice(0, 7);
+    info.textContent = `${r.version || "0.0.0"}${cur ? " · " + cur : ""}${r.is_git ? "" : " (not a git checkout)"}`;
+    if (r.error) {
+      status.textContent = r.error;
+    } else if (r.has_update) {
+      status.innerHTML = `<b class="warn-text">Update available</b> — ${(r.latest_sha || "").slice(0, 7)}${r.latest_message ? ` — “${escape(r.latest_message)}”` : ""}`;
+    } else if (r.is_git) {
+      status.textContent = "You're up to date.";
+    }
+  } catch (err) {
+    info.textContent = "error";
+    status.textContent = err.message;
+  }
+}
+
+$("#set-update-check").addEventListener("click", async () => {
+  const btn = $("#set-update-check");
+  btn.disabled = true; btn.textContent = "Checking…";
+  try {
+    const r = await api("GET", "/api/update/check?force=1");
+    const cur = (r.current_sha || "").slice(0, 7);
+    $("#set-version-info").textContent = `${r.version}${cur ? " · " + cur : ""}`;
+    if (r.has_update) {
+      $("#set-update-status").innerHTML = `<b class="warn-text">Update available</b> — ${(r.latest_sha || "").slice(0, 7)}. Close Settings to see the banner.`;
+      // Re-trigger the banner check so it shows even if previously dismissed.
+      localStorage.removeItem(UPDATE_DISMISSED_KEY);
+      checkForUpdate(true);
+    } else {
+      $("#set-update-status").textContent = r.error || "You're up to date.";
+    }
+  } catch (err) {
+    $("#set-update-status").textContent = err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = "Check now";
+  }
+});
+
 $("#btn-settings").addEventListener("click", async () => {
   $("#set-ui-port").value = state.ui.port || 47823;
   $("#set-proxy-port").value = state.proxy.port || 47824;
@@ -471,6 +515,7 @@ $("#btn-settings").addEventListener("click", async () => {
     $("#set-autostart-boot").checked = false;
     $("#set-autostart-where").textContent = "";
   }
+  populateVersionInfo();
   dlg.showModal();
 });
 

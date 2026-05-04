@@ -93,6 +93,13 @@ def _flatten_anthropic_content(content: Any) -> tuple[str, list[dict[str, Any]],
     - text: concatenated text blocks
     - tool_uses: list of OpenAI ``tool_calls`` entries (assistant tool use)
     - tool_results: list of OpenAI ``role=tool`` messages (user tool result)
+
+    Anthropic's prompt-cache ``cache_control`` markers (``{"type":"text",
+    "text":"…","cache_control":{...}}``) are silently flattened to plain
+    text — most OpenAI-compatible providers 400 on the unknown field.
+    Users who want cache passthrough can opt in via the preset's
+    ``prompt_cache_passthrough`` flag (which keeps the marker on
+    upstreams that *do* understand it).
     """
     if content is None:
         return "", [], []
@@ -180,12 +187,27 @@ def anthropic_to_openai_request(req: dict[str, Any], preset: dict[str, Any]) -> 
         else:
             out_messages.append({"role": role or "user", "content": text})
 
-    # Resolve model with aliases.
-    model = req.get("model") or preset.get("model") or ""
+    # Resolve the upstream model id.
+    #
+    # Precedence (most specific first):
+    #   1. If the request's model is in `model_aliases`, use the mapped value.
+    #   2. If the request's model is a Claude id (claude-sonnet-4, claude-
+    #      haiku-4.5, …) we override to the preset's configured model —
+    #      sending a Claude id to DeepSeek/NIMs/etc. is a guaranteed 404.
+    #      This is what makes Claude Code's "/model claude-sonnet-4" inside
+    #      a session "do the right thing" on a custom provider.
+    #   3. Otherwise trust whatever the request asked for (the user may
+    #      have typed `meta/llama-3.1-8b-instruct` explicitly).
+    #   4. Fall back to the preset's `model` if the request didn't specify.
+    req_model = req.get("model") or ""
     aliases = preset.get("model_aliases") or {}
-    if model in aliases:
-        model = aliases[model]
-    if not model:
+    if req_model in aliases:
+        model = aliases[req_model]
+    elif req_model.lower().startswith("claude-") or req_model.lower().startswith("anthropic/claude"):
+        model = preset.get("model") or req_model
+    elif req_model:
+        model = req_model
+    else:
         model = preset.get("model") or ""
 
     out: dict[str, Any] = {
@@ -508,6 +530,11 @@ class _Handler(BaseHTTPRequestHandler):
         if not self._host_ok():
             self._send_json(403, {"error": {"type": "host_not_allowed"}})
             return
+        # Routing: count_tokens BEFORE the generic /v1/messages handler,
+        # because the latter would otherwise swallow it via startswith().
+        if self.path.startswith("/v1/messages/count_tokens"):
+            self._handle_count_tokens()
+            return
         if self.path.startswith("/v1/messages"):
             self._handle_messages()
             return
@@ -541,6 +568,45 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(e.code, {"error": {"message": str(e)}})
         except Exception as e:
             self._send_json(502, {"error": {"message": str(e)}})
+
+    # -- /v1/messages/count_tokens -----------------------------------------
+
+    def _handle_count_tokens(self) -> None:
+        """Anthropic's token-count endpoint, estimated locally.
+
+        Most OpenAI-compatible providers don't expose a token-counting
+        endpoint, so we approximate from the request body. Claude Code
+        uses this to manage context windows; an over-estimate is safer
+        than an under-estimate (which would let it pack the context too
+        full and 400 on the real /v1/messages call).
+        """
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(length) if length else b""
+            req = json.loads(raw.decode("utf-8")) if raw else {}
+        except Exception:
+            req = {}
+        # Roughly 1 token per 3.5 characters of English text — overestimates
+        # for code (which is denser) but Claude Code itself uses similar
+        # heuristics when an API call is unavailable.
+        text_chars = 0
+
+        def _walk(v: Any) -> None:
+            nonlocal text_chars
+            if isinstance(v, str):
+                text_chars += len(v)
+            elif isinstance(v, list):
+                for x in v:
+                    _walk(x)
+            elif isinstance(v, dict):
+                for x in v.values():
+                    _walk(x)
+
+        _walk(req.get("system"))
+        _walk(req.get("messages"))
+        _walk(req.get("tools"))
+        approx = max(1, text_chars // 4)
+        self._send_json(200, {"input_tokens": approx})
 
     # -- /v1/messages -------------------------------------------------------
 
@@ -604,11 +670,32 @@ class _Handler(BaseHTTPRequestHandler):
                     err_body = e.read()
                 except Exception:
                     pass
-                if 500 <= e.code < 600 and attempt < retries:
-                    time.sleep(backoff ** attempt)
+                err_text = err_body.decode("utf-8", "replace")[:1000]
+
+                # Some providers reject `stream_options.include_usage` with
+                # 400 (older self-hosted vLLM, certain enterprise gateways).
+                # Drop the option and retry once before bubbling up.
+                if e.code == 400 and "stream_options" in err_text and "stream_options" in oai_req:
+                    log.info("upstream rejected stream_options; retrying without it")
+                    oai_req.pop("stream_options", None)
+                    body = json.dumps(oai_req).encode("utf-8")
+                    continue
+
+                # Retry on 5xx (server-side) and 429 (rate limited),
+                # honoring the upstream's `retry-after` header when set.
+                retriable = (500 <= e.code < 600) or e.code == 429
+                if retriable and attempt < retries:
+                    delay = backoff ** attempt
+                    ra = e.headers.get("Retry-After") if e.headers else None
+                    if ra:
+                        try:
+                            delay = max(delay, float(ra))
+                        except ValueError:
+                            pass
+                    time.sleep(delay)
                     attempt += 1
                     continue
-                self._send_json(e.code, {"type": "error", "error": {"type": "upstream_error", "message": err_body.decode("utf-8", "replace")[:1000]}})
+                self._send_json(e.code, {"type": "error", "error": {"type": "upstream_error", "message": err_text}})
                 return
             except Exception as e:
                 if attempt < retries:
@@ -634,7 +721,10 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "keep-alive")
+        # Deliberately NOT sending Connection: keep-alive: BaseHTTPRequestHandler
+        # defaults to HTTP/1.0 where keep-alive requires explicit
+        # Content-Length, which we can't know for a stream. Letting it close
+        # at end-of-handler is what signals "stream over" to the client.
         self.end_headers()
         translator = _StreamTranslator(model)
         for chunk_bytes in translator.start():

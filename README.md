@@ -58,8 +58,20 @@ back to talking to api.anthropic.com.
 
 ### Zero-terminal install (double-click)
 
-Don't want to type any commands? Download the repo as a ZIP from
-GitHub (the green **Code → Download ZIP** button), unzip it, and:
+Don't want to type any commands? Two options:
+
+**Option A: `git clone` (cleanest folder name).** Open a terminal once
+(yes, ironic) and run `git clone https://github.com/xhashmi/claude-oneclick.git`
+— that gives you a folder literally called `claude-oneclick/`. Then
+never open a terminal again; just double-click the launcher.
+
+**Option B: Download the ZIP** with the green **Code → Download ZIP**
+button. GitHub names the unzipped folder
+`claude-oneclick-<branch>/` — if you grabbed a feature branch the name
+will be long and ugly. Rename it to `claude-oneclick/` if you want.
+The install scripts work fine either way.
+
+Then in your file manager, double-click:
 
 | OS | What to double-click |
 |---|---|
@@ -69,6 +81,10 @@ GitHub (the green **Code → Download ZIP** button), unzip it, and:
 
 A terminal window pops up automatically, runs the install, and the web
 UI opens in your browser. Press a key to close it when it's done.
+
+> **Tip:** Pick `git clone` if you also want the in-app **Update now**
+> button to work — the updater diffs your local `git rev-parse HEAD`
+> against `origin/main`, which only works on a real git checkout.
 
 > **Prerequisite:** Python 3.9+ must already be installed. If it isn't,
 > the installer detects that and opens the python.org download page for
