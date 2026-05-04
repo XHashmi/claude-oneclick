@@ -32,6 +32,7 @@ from claude_oneclick.config import (
     load,
     save,
     set_active,
+    set_api_key_for_group,
     set_enabled,
     update_override,
     upsert_user_preset,
@@ -331,15 +332,16 @@ class _Handler(BaseHTTPRequestHandler):
         if not get_preset(name):
             self._send_json(404, {"error": "unknown preset"})
             return
-        if get_preset(name).get("builtin"):
-            update_override(name, {"api_key": api_key})
-        else:
-            p = dict(get_preset(name))
-            p["api_key"] = api_key
-            upsert_user_preset(p)
+        try:
+            updated = set_api_key_for_group(name, api_key)
+        except KeyError:
+            self._send_json(404, {"error": "unknown preset"})
+            return
         system_env.apply_state()
-        _MODELS_CACHE.pop(name, None)
-        self._send_json(200, {"ok": True})
+        # Bust the model-discovery cache for every preset we just keyed.
+        for n in updated:
+            _MODELS_CACHE.pop(n, None)
+        self._send_json(200, {"ok": True, "updated": updated})
 
     def _api_provider_models(self, group: str) -> None:
         """Live catalog for a whole provider group (e.g. "NVIDIA NIMs").

@@ -426,8 +426,16 @@ $("#btn-save-key").addEventListener("click", async () => {
   const p = getSelected(); if (!p) return;
   const key = $("#f-api_key").value;
   if (!key) { toast("Enter a key first", "error"); return; }
-  try { await api("POST", "/api/keys", { name: p.name, api_key: key }); $("#f-api_key").value = ""; await refresh(); toast("API key saved"); }
-  catch (err) { toast(err.message, "error"); }
+  try {
+    const r = await api("POST", "/api/keys", { name: p.name, api_key: key });
+    $("#f-api_key").value = "";
+    await refresh();
+    if (r && r.updated && r.updated.length > 1) {
+      toast(`API key saved for ${r.updated.length} ${escape(p.group || "")} presets`);
+    } else {
+      toast("API key saved");
+    }
+  } catch (err) { toast(err.message, "error"); }
 });
 
 $("#btn-delete").addEventListener("click", async () => {

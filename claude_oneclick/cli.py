@@ -152,16 +152,16 @@ def _cmd_set(args: argparse.Namespace) -> int:
 
 
 def _cmd_set_key(args: argparse.Namespace) -> int:
-    p = get_preset(args.name)
-    if not p:
+    from claude_oneclick.config import set_api_key_for_group
+    try:
+        updated = set_api_key_for_group(args.name, args.key)
+    except KeyError:
         print(f"unknown preset: {args.name}", file=sys.stderr)
         return 1
-    if p.get("builtin"):
-        update_override(args.name, {"api_key": args.key})
+    if len(updated) == 1:
+        print(f"key saved for {args.name}")
     else:
-        merged = dict(p); merged["api_key"] = args.key
-        upsert_user_preset(merged)
-    print(f"key saved for {args.name}")
+        print(f"key saved for {len(updated)} presets in the same group: {', '.join(updated)}")
     return 0
 
 

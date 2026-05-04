@@ -59,6 +59,48 @@ class ConfigTests(unittest.TestCase):
             # Must still flag as built-in.
             self.assertTrue(p.get("builtin"))
 
+    def test_set_api_key_propagates_within_group(self):
+        # Saving the key on one DeepSeek preset should mark every
+        # DeepSeek preset as keyed (same provider account).
+        with isolated_home():
+            from claude_oneclick.config import all_presets, get_preset, set_api_key_for_group
+            updated = set_api_key_for_group("deepseek-v4-pro", "sk-deepseek-real")
+            self.assertGreaterEqual(len(updated), 4)  # V4 Pro, V4 Flash, Chat, R1
+            for p in all_presets():
+                if p.get("group") == "DeepSeek":
+                    self.assertEqual(p["api_key"], "sk-deepseek-real",
+                                     msg=f"{p['name']} didn't inherit the key")
+
+    def test_set_api_key_doesnt_cross_groups(self):
+        # A DeepSeek key must NOT bleed into the NVIDIA NIMs presets.
+        with isolated_home():
+            from claude_oneclick.config import all_presets, set_api_key_for_group
+            set_api_key_for_group("deepseek-v4-pro", "sk-deepseek")
+            for p in all_presets():
+                if p.get("group") == "NVIDIA NIMs":
+                    self.assertEqual(p.get("api_key", ""), "",
+                                     msg=f"{p['name']} got cross-contaminated")
+
+    def test_set_api_key_propagates_within_nvidia_nims(self):
+        with isolated_home():
+            from claude_oneclick.config import all_presets, set_api_key_for_group
+            updated = set_api_key_for_group("nim-llama-405b", "nvapi-real")
+            for p in all_presets():
+                if p.get("group") == "NVIDIA NIMs":
+                    self.assertEqual(p["api_key"], "nvapi-real",
+                                     msg=f"{p['name']} didn't inherit the NIMs key")
+
+    def test_set_api_key_preserves_deliberate_overrides(self):
+        # If a user already set a different key on one specific preset
+        # in the group, propagation must not silently overwrite it.
+        with isolated_home():
+            from claude_oneclick.config import all_presets, get_preset, set_api_key_for_group, update_override
+            update_override("deepseek-r1", {"api_key": "sk-special-account"})
+            set_api_key_for_group("deepseek-v4-pro", "sk-default-account")
+            self.assertEqual(get_preset("deepseek-r1")["api_key"], "sk-special-account")
+            # Other DeepSeek presets got the new default.
+            self.assertEqual(get_preset("deepseek-v4-flash")["api_key"], "sk-default-account")
+
     def test_migration_from_v1(self):
         with isolated_home() as home:
             cfg_path = home / ".config/claude-oneclick"

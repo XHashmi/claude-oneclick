@@ -244,3 +244,46 @@ def update_override(name: str, fields: dict[str, Any]) -> None:
     cfg = load()
     cfg.setdefault("overrides", {}).setdefault(name, {}).update(fields)
     save(cfg)
+
+
+def set_api_key_for_group(name: str, api_key: str) -> list[str]:
+    """Save an API key for ``name`` AND every other preset in the same group.
+
+    Providers issue one API key per account, and that key works across
+    every model variant they host. So if you paste your DeepSeek key
+    into "DeepSeek V4 Pro", you almost certainly want it to also apply
+    to "DeepSeek V4 Flash", "DeepSeek Chat", "DeepSeek R1", etc.
+    Same for NVIDIA NIMs across Llama / Nemotron / DeepSeek-V4 / GLM.
+
+    Returns the list of preset names that were updated, so the caller
+    can surface "saved key on N presets" feedback.
+    """
+    cfg = load()
+    target = get_preset(name, cfg)
+    if not target:
+        raise KeyError(f"Unknown preset: {name}")
+    group = target.get("group")
+    # Don't propagate within "Custom" or "Default" — those aren't a
+    # provider account; each user-created preset is its own thing.
+    propagate = group and group not in ("Custom", "Default")
+
+    updated: list[str] = []
+    for p in all_presets(cfg):
+        if p["name"] != name:
+            if not propagate or p.get("group") != group:
+                continue
+        # Only overwrite if the destination either has no key or has the
+        # same one already (so we don't clobber a deliberate override).
+        existing = p.get("api_key") or ""
+        if existing and existing != api_key and p["name"] != name:
+            continue
+        if p.get("builtin"):
+            cfg.setdefault("overrides", {}).setdefault(p["name"], {})["api_key"] = api_key
+        else:
+            for up in cfg.get("user_presets", []):
+                if up["name"] == p["name"]:
+                    up["api_key"] = api_key
+                    break
+        updated.append(p["name"])
+    save(cfg)
+    return updated
