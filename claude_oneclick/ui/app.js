@@ -913,27 +913,37 @@ $("#set-update-apply").addEventListener("click", async () => {
 });
 
 $("#btn-settings").addEventListener("click", async () => {
-  $("#set-ui-port").value = state.ui.port || 47823;
-  $("#set-proxy-port").value = state.proxy.port || 47824;
-  $("#set-theme").value = state.ui.theme || "auto";
-  $("#set-log_level").value = state.log_level || "info";
-  $("#set-autostart").checked = !!state.autostart_proxy;
-  $("#set-open_browser").checked = !!state.ui.open_browser_on_launch;
-  $("#set-skip_login").checked = !!state.skip_vscode_login;
-  $("#set-cache_ttl").value = (state.model_discovery && state.model_discovery.cache_ttl_seconds) || 600;
-  // Boot-time autostart lives on disk (per-OS), not in config.json — fetch it.
+  // Show the dialog FIRST. If any of the populate calls below blow up
+  // (e.g. the running server is older than the UI bundle and a new
+  // /api/* endpoint returns 404), the dialog must still be visible —
+  // a non-fatal error somewhere shouldn't lock the user out of the
+  // settings.
+  try { dlg.showModal(); } catch (_) { /* already open */ }
+
+  // Populate from current state. Each step is wrapped: a failing
+  // network call updates that one row's status text and continues.
+  try {
+    $("#set-ui-port").value = state.ui.port || 47823;
+    $("#set-proxy-port").value = state.proxy.port || 47824;
+    $("#set-theme").value = state.ui.theme || "auto";
+    $("#set-log_level").value = state.log_level || "info";
+    $("#set-autostart").checked = !!state.autostart_proxy;
+    $("#set-open_browser").checked = !!state.ui.open_browser_on_launch;
+    $("#set-skip_login").checked = !!state.skip_vscode_login;
+    $("#set-cache_ttl").value = (state.model_discovery && state.model_discovery.cache_ttl_seconds) || 600;
+  } catch (err) { console.warn("settings populate (state) failed:", err); }
+
   try {
     const a = await api("GET", "/api/autostart");
     $("#set-autostart-boot").checked = !!a.enabled;
     $("#set-autostart-where").textContent = a.location ? `(${a.location})` : "";
   } catch (_) {
     $("#set-autostart-boot").checked = false;
-    $("#set-autostart-where").textContent = "";
+    $("#set-autostart-where").textContent = "(server didn't expose /api/autostart — try restarting `claude-oneclick ui`)";
   }
-  populateVersionInfo();
-  populateDesktopStatus();
-  populateKeychainStatus();
-  dlg.showModal();
+  populateVersionInfo().catch(e => console.warn("version info:", e));
+  populateDesktopStatus().catch(e => console.warn("desktop status:", e));
+  populateKeychainStatus().catch(e => console.warn("keychain status:", e));
 });
 
 async function populateKeychainStatus() {
