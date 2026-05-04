@@ -77,6 +77,14 @@ _PRESET_FIELDS_WITH_DEFAULTS: dict[str, Any] = {
     # other reasoning-capable upstreams. Silently ignored by everyone else.
     "reasoning_enabled": False,
     "reasoning_effort": "medium",  # "low" | "medium" | "high"
+    # Free-form JSON object merged into every outbound /v1/chat/completions
+    # body. Use this to target reasoning fields on upstreams that don't
+    # speak OpenAI's `reasoning_effort` — e.g. `{"reasoning": true}`,
+    # `{"thinking": {"budget_tokens": 4096}}`, vendor-specific knobs, etc.
+    # Reasoning-effort templating: any string value "{{effort}}" gets
+    # replaced by the slider's current value (low|medium|high) when the
+    # reasoning toggle is ON.
+    "extra_body": {},
     "routing_rules": [],
 }
 

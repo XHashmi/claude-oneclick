@@ -237,6 +237,47 @@ code { background: var(--bg-3); padding: 1px 5px; border-radius: 4px; font-size:
 .banner button { margin-left: auto; }
 .banner #banner-dismiss { margin-left: 0; }
 
+/* ---- topbar polish ---- */
+.topbar-right { display: flex; align-items: center; gap: 16px; }
+.kbd-hint { font-size: 11px; letter-spacing: .5px; }
+@media (max-width: 720px) { .kbd-hint { display: none; } }
+.pill.secondary { background: var(--bg); }
+.pill.secondary.warn { color: var(--warn); border-color: var(--warn); }
+.pill.secondary.ok { color: var(--accent-2); border-color: var(--accent-2); }
+.hidden { display: none !important; }
+
+/* ---- sidebar polish ---- */
+.side-search { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.side-search input {
+  width: 100%; background: var(--bg-3); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 10px; font: inherit; font-size: 13px;
+}
+.side-search input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(94, 234, 212, .15); }
+.side-empty { padding: 20px; color: var(--muted); text-align: center; font-size: 13px; }
+
+/* ---- API key save status badge ---- */
+.key-status { display: inline-block; margin-left: 6px; font-size: 11px; color: var(--accent-2); font-weight: 600; }
+.key-status.empty { color: var(--warn); }
+
+/* ---- reasoning fieldset ---- */
+.reasoning-box {
+  border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px;
+  margin: 8px 0 18px 0; background: rgba(94, 234, 212, .04);
+}
+.reasoning-box legend { padding: 0 8px; color: var(--accent); font-weight: 600; font-size: 13px; }
+
+/* ---- monospace textarea for JSON editors ---- */
+.mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+
+/* ---- mobile / small screens ---- */
+@media (max-width: 720px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar { border-right: 0; border-bottom: 1px solid var(--border); max-height: 220px; }
+  .row { grid-template-columns: 1fr; }
+  .row label { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
+  .topbar { flex-wrap: wrap; gap: 10px; padding: 10px 14px; }
+}
+
 /* ---- slider ---- */
 .slider-row .slider-wrap { display: flex; flex-direction: column; gap: 4px; }
 .slider-wrap input[type=range] {

@@ -58,24 +58,47 @@ function renderToggle() {
   $("#toggle").checked = !!state.enabled;
   $("#state-text").textContent = state.enabled ? "ON" : "OFF";
   $("#status-dot").className = "dot" + (state.enabled ? " on" : "");
+  $("#status-dot").title = state.enabled ? "ON — Claude Code is routed" : "OFF — using Anthropic default";
   const active = state.presets.find(p => p.name === state.active);
   $("#active-pill").textContent = active ? (active.label || active.name) : "(none)";
+
+  // Proxy pill: show only when meaningful (toggle ON + openai preset).
+  const proxyPill = $("#proxy-pill");
+  if (state.enabled && active && active.format === "openai") {
+    proxyPill.classList.remove("hidden");
+    if (state.proxy && state.proxy.running) {
+      proxyPill.textContent = `proxy: running on :${state.proxy.port}`;
+      proxyPill.className = "pill secondary ok";
+    } else {
+      proxyPill.textContent = "proxy: starting…";
+      proxyPill.className = "pill secondary warn";
+    }
+  } else {
+    proxyPill.classList.add("hidden");
+  }
 }
 
 function renderSidebar() {
   const ul = $("#preset-list");
   ul.innerHTML = "";
+  const q = ($("#preset-search") && $("#preset-search").value || "").toLowerCase().trim();
+  let visible = 0;
   for (const p of state.presets) {
+    if (q && !((p.label || p.name).toLowerCase().includes(q) ||
+               p.name.toLowerCase().includes(q) ||
+               (p.base_url || "").toLowerCase().includes(q))) continue;
+    visible++;
     const li = document.createElement("li");
     li.className = (p.name === selected ? "selected " : "") + (p.name === state.active ? "active" : "");
     li.innerHTML = `
       <span class="preset-name">${escape(p.label || p.name)}</span>
       <span class="preset-base">${escape(p.base_url || (p.format === "anthropic" ? "(anthropic default)" : "(no base URL)"))}</span>
-      <span class="badge">${p.builtin ? "built-in" : "custom"}${p.api_key_set ? " · key set" : ""}</span>
+      <span class="badge">${p.builtin ? "built-in" : "custom"}${p.api_key_set ? " · key set" : " · no key"}${p.reasoning_enabled ? " · reasoning" : ""}</span>
     `;
     li.onclick = () => { selected = p.name; renderSidebar(); renderDetail(); };
     ul.appendChild(li);
   }
+  $("#side-empty").classList.toggle("hidden", visible > 0);
 }
 
 function getSelected() {
@@ -92,6 +115,13 @@ function renderDetail() {
   $("#f-base_url").value = p.base_url || "";
   $("#f-api_key").value = "";
   $("#f-api_key").placeholder = p.api_key_set ? "(saved — leave blank to keep)" : "sk-...";
+  // Visible "saved" badge next to the API-key label.
+  const ks = $("#api-key-status");
+  if (p.api_key_set) {
+    ks.textContent = "✓ saved"; ks.classList.remove("empty");
+  } else {
+    ks.textContent = "• not set yet"; ks.classList.add("empty");
+  }
   for (const r of $$('input[name=format]')) r.checked = (r.value === (p.format || "openai"));
 
   $("#f-model").value = p.model || "";
@@ -112,6 +142,7 @@ function renderDetail() {
   $("#f-prompt_cache_passthrough").checked = !!p.prompt_cache_passthrough;
   $("#f-reasoning_enabled").checked = !!p.reasoning_enabled;
   setReasoningEffortFromName(p.reasoning_effort || "medium");
+  $("#f-extra_body").value = p.extra_body && Object.keys(p.extra_body).length ? JSON.stringify(p.extra_body, null, 2) : "";
   $("#f-notes").value = p.notes || "";
 
   renderHeaders(p.extra_headers || {});
@@ -206,10 +237,27 @@ $("#btn-save-key").addEventListener("click", async () => {
 
 $("#btn-delete").addEventListener("click", async () => {
   const p = getSelected(); if (!p || p.builtin) return;
-  if (!confirm(`Delete preset '${p.name}'?`)) return;
+  const ok = await confirmDialog(`Delete "${p.label || p.name}"?`,
+    `This removes the preset and any saved API key. You can recreate it later.`,
+    "Delete");
+  if (!ok) return;
   try { await api("DELETE", "/api/preset/" + encodeURIComponent(p.name)); selected = null; await refresh(); toast("Deleted"); }
   catch (err) { toast(err.message, "error"); }
 });
+
+function confirmDialog(title, body, okLabel = "OK") {
+  return new Promise(resolve => {
+    const dlg = $("#confirm-dialog");
+    $("#confirm-title").textContent = title;
+    $("#confirm-body").textContent = body;
+    $("#confirm-ok").textContent = okLabel;
+    dlg.addEventListener("close", function once() {
+      dlg.removeEventListener("close", once);
+      resolve(dlg.returnValue === "ok");
+    });
+    dlg.showModal();
+  });
+}
 
 $("#btn-new").addEventListener("click", async () => {
   const name = prompt("Preset id (alnum, - and _):");
@@ -237,6 +285,21 @@ $("#btn-refresh-models").addEventListener("click", async () => {
 
 $("#btn-add-header").addEventListener("click", () => addHeaderRow());
 $("#btn-add-alias").addEventListener("click", () => addAliasRow());
+
+// Live preset filter.
+$("#preset-search").addEventListener("input", () => renderSidebar());
+
+// Cmd/Ctrl+Enter saves the current preset from any input.
+window.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    e.preventDefault();
+    $("#btn-save").click();
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n" && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
+    e.preventDefault();
+    $("#btn-new").click();
+  }
+});
 
 $("#btn-refresh-log").addEventListener("click", refreshLog);
 $("#btn-restart-proxy").addEventListener("click", async () => {
@@ -368,7 +431,20 @@ function collectForm(name) {
     prompt_cache_passthrough: $("#f-prompt_cache_passthrough").checked,
     reasoning_enabled: $("#f-reasoning_enabled").checked,
     reasoning_effort: reasoningEffortName($("#f-reasoning_effort").value),
+    extra_body: parseExtraBody(),
   };
+}
+
+function parseExtraBody() {
+  const raw = ($("#f-extra_body").value || "").trim();
+  if (!raw) return {};
+  try {
+    const obj = JSON.parse(raw);
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) return obj;
+    throw new Error("must be a JSON object");
+  } catch (e) {
+    throw new Error("Extra request body: " + e.message);
+  }
 }
 
 // --- keyboard shortcut: Space toggles -------------------------------------

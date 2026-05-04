@@ -51,6 +51,21 @@ def _setup_logging() -> logging.Logger:
 
 # ---------- request translation ---------------------------------------------
 
+
+def _substitute_effort(v: Any, effort: str) -> Any:
+    """Recursively replace the literal string ``{{effort}}`` with the slider
+    value (``"low"|"medium"|"high"``). Walks dicts and lists. Used by
+    ``extra_body`` so a single template entry like
+    ``{"thinking": {"effort": "{{effort}}"}}`` adapts to the active level.
+    """
+    if isinstance(v, str):
+        return v.replace("{{effort}}", effort)
+    if isinstance(v, dict):
+        return {k: _substitute_effort(vv, effort) for k, vv in v.items()}
+    if isinstance(v, list):
+        return [_substitute_effort(vv, effort) for vv in v]
+    return v
+
 def _flatten_anthropic_content(content: Any) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
     """Anthropic content can be a string or a list of blocks. Return:
 
@@ -175,15 +190,34 @@ def anthropic_to_openai_request(req: dict[str, Any], preset: dict[str, Any]) -> 
     if stop:
         out["stop"] = stop
 
-    # Reasoning toggle: forwards as the OpenAI-standard `reasoning_effort`
-    # field, which DeepSeek V4 Pro/Flash, OpenAI o-series, and a few other
-    # reasoning models honor. Upstreams that don't speak it ignore the
-    # extra field.
+    # Reasoning toggle.
+    #
+    # Two channels, both ON when `reasoning_enabled` is true:
+    #
+    #   1. The OpenAI-standard `reasoning_effort: "low"|"medium"|"high"`
+    #      field. Honored by OpenAI o-series, DeepSeek V4 Pro/Flash, and
+    #      any upstream that follows the OpenAI convention. Ignored by
+    #      everyone else.
+    #
+    #   2. Whatever the user put in `extra_body`. That dict is merged
+    #      into the outbound request as-is, with one substitution: any
+    #      string value equal to `{{effort}}` is replaced with the
+    #      slider's current value. This lets a single preset target
+    #      non-standard reasoning fields like `{"reasoning": true}`,
+    #      `{"thinking": {"budget_tokens": 4096}}`, vendor-specific
+    #      enable flags, etc.
+    effort = preset.get("reasoning_effort") or "medium"
+    if effort not in ("low", "medium", "high"):
+        effort = "medium"
     if preset.get("reasoning_enabled"):
-        effort = preset.get("reasoning_effort") or "medium"
-        if effort not in ("low", "medium", "high"):
-            effort = "medium"
         out["reasoning_effort"] = effort
+
+    # extra_body merge — applies on every request, regardless of
+    # reasoning_enabled (so users can pin fields like `safe_mode: true`).
+    extra = preset.get("extra_body") or {}
+    if isinstance(extra, dict):
+        for k, v in extra.items():
+            out[k] = _substitute_effort(v, effort) if preset.get("reasoning_enabled") else v
 
     # Tool definitions.
     if req.get("tools"):

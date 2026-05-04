@@ -108,6 +108,8 @@ def _cmd_add(args: argparse.Namespace) -> int:
         "small_fast_model": args.small_fast_model or args.model or "",
         "format": args.format,
         "notes": args.notes or "",
+        "reasoning_enabled": bool(args.reasoning),
+        "reasoning_effort": args.reasoning_effort,
     }
     upsert_user_preset(preset)
     print(f"saved preset: {args.name}")
@@ -337,6 +339,9 @@ def _build_parser() -> argparse.ArgumentParser:
     pa.add_argument("--small-fast-model", default="")
     pa.add_argument("--format", choices=["openai", "anthropic"], default="openai")
     pa.add_argument("--notes", default="")
+    pa.add_argument("--reasoning", action="store_true",
+                    help="enable reasoning mode (sends reasoning_effort on every request)")
+    pa.add_argument("--reasoning-effort", choices=["low", "medium", "high"], default="medium")
     pa.set_defaults(func=_cmd_add)
 
     pd = sub.add_parser("delete", help="delete a custom preset"); pd.add_argument("name")

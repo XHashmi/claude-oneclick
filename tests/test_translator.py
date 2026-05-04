@@ -97,6 +97,37 @@ class RequestTranslatorTests(unittest.TestCase):
         )
         self.assertEqual(out3["reasoning_effort"], "medium")
 
+    def test_extra_body_merged_with_effort_substitution(self):
+        # The {{effort}} placeholder must resolve recursively (nested dicts
+        # and lists) when reasoning is ON.
+        preset = dict(
+            PRESET,
+            reasoning_enabled=True, reasoning_effort="high",
+            extra_body={
+                "thinking": {"level": "{{effort}}"},
+                "passthrough_flag": True,
+                "tags": ["{{effort}}", "model-x"],
+            },
+        )
+        req = {"model": "x", "messages": [{"role": "user", "content": "hi"}]}
+        out = anthropic_to_openai_request(req, preset)
+        self.assertEqual(out["thinking"], {"level": "high"})
+        self.assertTrue(out["passthrough_flag"])
+        self.assertEqual(out["tags"], ["high", "model-x"])
+
+    def test_extra_body_no_substitution_when_reasoning_off(self):
+        # When reasoning is OFF, extra_body still merges but {{effort}}
+        # is NOT substituted (it stays literal so the user sees a clear
+        # signal that their toggle is off).
+        preset = dict(
+            PRESET, reasoning_enabled=False,
+            extra_body={"safe_mode": True, "level": "{{effort}}"},
+        )
+        req = {"model": "x", "messages": [{"role": "user", "content": "hi"}]}
+        out = anthropic_to_openai_request(req, preset)
+        self.assertTrue(out["safe_mode"])
+        self.assertEqual(out["level"], "{{effort}}")
+
 
 class ResponseTranslatorTests(unittest.TestCase):
     def test_basic_text_response(self):
