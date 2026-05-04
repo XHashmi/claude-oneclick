@@ -36,7 +36,15 @@ def env_for_preset(
     *,
     skip_vscode_login: bool = True,
 ) -> dict[str, str]:
-    """Compute the env-var map for a given (active, enabled) preset."""
+    """Compute the env-var map for a given (active, enabled) preset.
+
+    We deliberately do NOT inject DISABLE_NON_ESSENTIAL_MODEL_CALLS:
+    Claude Code's background calls drive memory, conversation titles,
+    tool-result summaries, and other features users expect. Disabling
+    them makes the UI snappier in the moment but cripples the actual
+    product. Speed comes from picking a fast model, not from breaking
+    features.
+    """
     fmt = (preset.get("format") or "openai").lower()
     from claude_oneclick.config import _resolve_api_key
     api_key = _resolve_api_key(preset)
@@ -73,11 +81,6 @@ def env_for_preset(
     if small:
         env["ANTHROPIC_SMALL_FAST_MODEL"] = small
     if skip_vscode_login:
-        # Tells the Claude Code CLI / VSCode extension to authenticate
-        # using ANTHROPIC_AUTH_TOKEN directly and skip the OAuth login
-        # flow. This is what makes the toggle "just work" without the
-        # user having to log into Anthropic when they're using a custom
-        # provider.
         env["CLAUDE_CODE_SKIP_LOGIN"] = "1"
     return env
 

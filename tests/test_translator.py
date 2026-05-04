@@ -111,6 +111,44 @@ class RequestTranslatorTests(unittest.TestCase):
         out = anthropic_to_openai_request(req, preset)
         self.assertNotIn("response_format", out)
 
+    def test_anthropic_typed_tools_get_synthesized_schemas(self):
+        # Anthropic's typed tools (bash_20241022, text_editor_*, etc.) ship
+        # without an input_schema. Without translation, third-party models
+        # see {"parameters": {"type": "object"}} and can't drive them.
+        preset = dict(PRESET)
+        req = {
+            "model": "x",
+            "messages": [{"role": "user", "content": "list files"}],
+            "tools": [
+                {"type": "bash_20241022", "name": "bash"},
+                {"type": "text_editor_20241022", "name": "str_replace_editor"},
+                {"type": "web_search_20250305", "name": "web_search"},
+                {"type": "computer_20241022", "name": "computer",
+                 "display_width_px": 1024, "display_height_px": 768, "display_number": 1},
+            ],
+        }
+        out = anthropic_to_openai_request(req, preset)
+        names = {t["function"]["name"]: t["function"] for t in out["tools"]}
+        self.assertIn("command", names["bash"]["parameters"]["properties"])
+        self.assertIn("command", names["str_replace_editor"]["parameters"]["properties"])
+        self.assertIn("query", names["web_search"]["parameters"]["properties"])
+        self.assertIn("action", names["computer"]["parameters"]["properties"])
+
+    def test_thinking_passthrough_overrides_preset(self):
+        # Claude Code sends thinking={type:enabled, budget_tokens: 6000}
+        # with reasoning ON in its own settings. The proxy should map this
+        # to reasoning_effort=medium AND keep the thinking field for
+        # upstreams that read it natively (DeepSeek, NIMs nvext.thinking).
+        preset = dict(PRESET, reasoning_enabled=False)
+        req = {
+            "model": "x",
+            "messages": [{"role": "user", "content": "hi"}],
+            "thinking": {"type": "enabled", "budget_tokens": 6000},
+        }
+        out = anthropic_to_openai_request(req, preset)
+        self.assertEqual(out["reasoning_effort"], "medium")
+        self.assertEqual(out["thinking"], {"type": "enabled", "budget_tokens": 6000})
+
     def test_no_output_cap_uses_high_ceiling(self):
         # With "No output cap" we override Claude Code's modest cap with
         # a value bigger than any current model's internal ceiling, so

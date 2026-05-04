@@ -71,6 +71,116 @@ def _join_endpoint(base: str, endpoint: str) -> str:
     return f"{base}/{endpoint}"
 
 
+def _typed_tool_to_function(t: dict[str, Any]) -> dict[str, Any] | None:
+    """Translate Anthropic's server-typed tools into OpenAI function shape.
+
+    Anthropic's typed tools (``bash_20241022``, ``text_editor_20241022``,
+    ``computer_20241022``, ``web_search_20250305``) ship without an
+    ``input_schema`` because the schema is implicit in the model's
+    training. Third-party models don't have that training, so we
+    synthesize a JSON Schema that matches the documented behavior.
+    Returns None if the type is unrecognized — caller falls back to
+    the generic empty-object shape.
+    """
+    ttype = (t.get("type") or "").lower()
+    name = t.get("name") or ttype.split("_")[0]
+
+    if ttype.startswith("bash"):
+        return {"type": "function", "function": {
+            "name": name,
+            "description": "Run a bash command on the user's machine. Returns stdout/stderr.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "Bash command to execute."},
+                    "restart": {"type": "boolean", "description": "Restart the bash session.", "default": False},
+                },
+                "required": ["command"],
+            },
+        }}
+
+    if ttype.startswith("text_editor") or ttype.startswith("str_replace"):
+        return {"type": "function", "function": {
+            "name": name,
+            "description": (
+                "Filesystem text editor. Use 'view' to read, 'create' to write a "
+                "new file, 'str_replace' to replace exact text, 'insert' to add a "
+                "line at a position, 'undo_edit' to revert."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "enum": ["view", "create", "str_replace", "insert", "undo_edit"]},
+                    "path": {"type": "string", "description": "Absolute path to the file."},
+                    "file_text": {"type": "string", "description": "For create — full contents."},
+                    "old_str": {"type": "string", "description": "For str_replace — exact existing text."},
+                    "new_str": {"type": "string", "description": "For str_replace/insert — replacement text."},
+                    "insert_line": {"type": "integer", "description": "For insert — line number after which to insert (0 = top)."},
+                    "view_range": {"type": "array", "items": {"type": "integer"}, "description": "For view — [start, end] line range."},
+                },
+                "required": ["command", "path"],
+            },
+        }}
+
+    if ttype.startswith("computer"):
+        return {"type": "function", "function": {
+            "name": name,
+            "description": (
+                "Control the user's screen and keyboard. Actions include "
+                "screenshot, mouse_move, left_click, right_click, double_click, "
+                "type (text), key (key combo), scroll, cursor_position."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "screenshot", "mouse_move", "left_click", "right_click",
+                            "middle_click", "double_click", "triple_click", "left_click_drag",
+                            "type", "key", "scroll", "cursor_position", "wait", "hold_key",
+                        ],
+                    },
+                    "coordinate": {"type": "array", "items": {"type": "integer"}, "description": "[x, y] for mouse actions."},
+                    "text": {"type": "string", "description": "For 'type' or 'key'."},
+                    "scroll_direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
+                    "scroll_amount": {"type": "integer", "description": "Number of click-equivalents to scroll."},
+                    "duration": {"type": "number", "description": "Seconds — for 'wait' / 'hold_key'."},
+                },
+                "required": ["action"],
+            },
+        }}
+
+    if ttype.startswith("web_search"):
+        return {"type": "function", "function": {
+            "name": name,
+            "description": "Search the web for the given query and return relevant results.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "What to search for."},
+                    "max_uses": {"type": "integer", "description": "Maximum number of searches.", "default": 5},
+                },
+                "required": ["query"],
+            },
+        }}
+
+    if ttype.startswith("web_fetch"):
+        return {"type": "function", "function": {
+            "name": name,
+            "description": "Fetch the content of a web page at the given URL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "URL to fetch."},
+                },
+                "required": ["url"],
+            },
+        }}
+
+    return None
+
+
 _THINK_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL | re.IGNORECASE)
 
 
@@ -336,7 +446,34 @@ def anthropic_to_openai_request(req: dict[str, Any], preset: dict[str, Any]) -> 
     effort = preset.get("reasoning_effort") or "medium"
     if effort not in ("low", "medium", "high"):
         effort = "medium"
-    if preset.get("reasoning_enabled"):
+    # Claude Code has its own reasoning controls (settings.json
+    # "thinking" config). When the user turns reasoning on/off there,
+    # the request includes a `thinking` field that we honor BEFORE
+    # falling back to the preset's reasoning_enabled flag. This way:
+    #   - Claude Code OFF + preset OFF  → no reasoning
+    #   - Claude Code OFF + preset ON   → preset's reasoning_effort fires
+    #     (legacy behavior — preset can still force it on)
+    #   - Claude Code ON  + preset *    → Claude Code's thinking config
+    #     wins; we map its budget_tokens / type into reasoning_effort
+    #     and pass thinking={type:enabled} into extra_body for upstreams
+    #     that prefer the Anthropic-style field.
+    cc_thinking = req.get("thinking") or {}
+    if isinstance(cc_thinking, dict) and cc_thinking.get("type") == "enabled":
+        # Map budget_tokens to a coarse effort level.
+        budget = int(cc_thinking.get("budget_tokens") or 0)
+        if budget <= 2048:
+            mapped_effort = "low"
+        elif budget <= 8192:
+            mapped_effort = "medium"
+        else:
+            mapped_effort = "high"
+        out["reasoning_effort"] = mapped_effort
+        effort = mapped_effort
+        # Also pass the Anthropic-style `thinking` block through so
+        # upstreams that read it (DeepSeek V4 has `thinking` param,
+        # NIMs supports nvext.thinking on some models) honor it directly.
+        out["thinking"] = {"type": "enabled", "budget_tokens": budget or 4096}
+    elif preset.get("reasoning_enabled"):
         out["reasoning_effort"] = effort
 
     # extra_body merge — applies on every request, regardless of
@@ -346,18 +483,30 @@ def anthropic_to_openai_request(req: dict[str, Any], preset: dict[str, Any]) -> 
         for k, v in extra.items():
             out[k] = _substitute_effort(v, effort) if preset.get("reasoning_enabled") else v
 
-    # Tool definitions.
+    # Tool definitions. Anthropic's API supports two shapes:
+    #   1. Standard custom tools — {name, description, input_schema}.
+    #      Pass straight through as OpenAI-style functions.
+    #   2. Server-typed tools — {type: "bash_20241022"|"text_editor_*"|
+    #      "computer_*"|"web_search_*"|...}. These have implicit
+    #      schemas that only Anthropic's models know. Third-party
+    #      models need an explicit JSON Schema or they emit garbage,
+    #      so we synthesize one based on the type. Same name maps to
+    #      the same function on the model side, so tool_use blocks
+    #      round-trip cleanly back to Claude Code.
     if req.get("tools"):
         out["tools"] = []
         for t in req["tools"]:
-            out["tools"].append({
-                "type": "function",
-                "function": {
-                    "name": t.get("name"),
-                    "description": t.get("description") or "",
-                    "parameters": t.get("input_schema") or {"type": "object"},
-                },
-            })
+            tdef = _typed_tool_to_function(t) if (t.get("type") and not t.get("input_schema")) else None
+            if tdef is None:
+                tdef = {
+                    "type": "function",
+                    "function": {
+                        "name": t.get("name"),
+                        "description": t.get("description") or "",
+                        "parameters": t.get("input_schema") or {"type": "object"},
+                    },
+                }
+            out["tools"].append(tdef)
         tc = req.get("tool_choice")
         if isinstance(tc, dict):
             ttype = tc.get("type")
