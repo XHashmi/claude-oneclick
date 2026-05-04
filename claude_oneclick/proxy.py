@@ -1130,8 +1130,9 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.flush()
 
         buf = b""
+        done = False
         try:
-            while True:
+            while not done:
                 line = up.readline()
                 if not line:
                     break
@@ -1145,6 +1146,15 @@ class _Handler(BaseHTTPRequestHandler):
                         if not payload:
                             continue
                         if payload == b"[DONE]":
+                            # Upstream is done. STOP reading — calling
+                            # readline() again would block until upstream's
+                            # TCP idle-timeout (30-60s on most providers),
+                            # during which Claude Code keeps showing the
+                            # spinner ("Puzzling…") even though the actual
+                            # response was complete. Setting `done` exits
+                            # the outer while so we run finish() and close
+                            # our HTTP response immediately.
+                            done = True
                             buf = b""
                             break
                         try:

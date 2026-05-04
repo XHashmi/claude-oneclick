@@ -42,8 +42,8 @@ BUILTIN_PRESETS: list[dict[str, Any]] = [
     {
         "name": "deepseek-v4-flash",
         "label": "DeepSeek V4 Flash",
-        "subtitle": "Smaller, faster reasoning model",
-        "tags": ["reasoning", "fast"],
+        "subtitle": "Smaller, faster — reasoning available but off by default",
+        "tags": ["fast"],
         "group": "DeepSeek",
         "base_url": "https://api.deepseek.com",
         "api_key": "",
@@ -51,9 +51,10 @@ BUILTIN_PRESETS: list[dict[str, Any]] = [
         "model": "deepseek-v4-flash",
         "small_fast_model": "deepseek-v4-flash",
         "format": "openai",
-        "notes": "DeepSeek V4 Flash — smaller and faster than Pro. Good "
-                 "single-model choice on tight latency budgets.",
-        "reasoning_enabled": True,
+        "notes": "DeepSeek V4 Flash — smaller and faster than Pro. Reasoning "
+                 "is OFF by default so chat feels instant; turn it on in "
+                 "Sampling tab for hard problems where you want chain-of-thought.",
+        "reasoning_enabled": False,
         "builtin": True,
     },
     {
