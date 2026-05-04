@@ -546,8 +546,12 @@ $("#btn-test").addEventListener("click", async () => {
   try {
     const r = await api("POST", "/api/test-preset", { name: p.name });
     if (r.ok) {
-      out.className = "test-result ok";
-      out.innerHTML = `✓ <b>OK</b> in ${r.latency_ms}ms · ${escape(p.label || p.name)} replied: <i>"${escape(r.response_text || "(empty)")}"</i>`;
+      out.className = r.warning ? "test-result warn" : "test-result ok";
+      const sym = r.warning ? "⚠" : "✓";
+      const note = r.warning
+        ? `<br><span class="muted small">${escape(r.warning)}</span>`
+        : "";
+      out.innerHTML = `${sym} <b>OK</b> in ${r.latency_ms}ms · ${escape(p.label || p.name)} replied: <i>"${escape(r.response_text || "(empty)")}"</i>${note}`;
     } else {
       out.className = "test-result error";
       // Full error, no truncation — these messages carry actionable info

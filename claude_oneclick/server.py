@@ -417,10 +417,19 @@ class _Handler(BaseHTTPRequestHandler):
         proxy_host = p.get("host", "127.0.0.1")
         proxy_port = int(p.get("port", 47824))
         try:
+            # Reasoning-capable models (DeepSeek V4 Pro/R1, Claude with
+            # extended thinking, Groq with reasoning_effort, etc.) burn
+            # tokens on private chain-of-thought BEFORE emitting any
+            # visible text. A 20-token cap was hitting "max_tokens"
+            # during the thinking phase, leaving content empty and
+            # making the test falsely report failure. 512 is plenty for
+            # any reasoner to think + reply "OK" while still being a
+            # sub-cent test.
+            test_max_tokens = 512 if preset.get("reasoning_enabled") else 64
             payload = json.dumps({
                 "model": preset.get("model") or name,
-                "messages": [{"role": "user", "content": "Reply with just OK."}],
-                "max_tokens": 20,
+                "messages": [{"role": "user", "content": "Reply with just the word OK."}],
+                "max_tokens": test_max_tokens,
                 "stream": False,
             }).encode("utf-8")
             # Per-request preset override → no need to flip the active
@@ -456,9 +465,21 @@ class _Handler(BaseHTTPRequestHandler):
             # nothing in content), provider rate-limited the no-cost
             # ping, or the model itself doesn't support tool use and
             # silently returned empty.
-            if ok:
-                error_msg = None
-            else:
+            error_msg = None
+            warn_msg = None
+            if not ok and stop_reason == "max_tokens":
+                # Reasoning model burned the test budget on private
+                # chain-of-thought. Real Claude Code calls use much
+                # larger max_tokens, so this is a test-harness artifact,
+                # not a config problem.
+                ok = True
+                warn_msg = (
+                    f"reasoning model used all {test_max_tokens} test tokens "
+                    "thinking — works fine in real use (Claude Code sends "
+                    "much higher max_tokens)"
+                )
+                preview = "(reasoning ate the test budget — preset is fine)"
+            elif not ok:
                 bits = [
                     f"upstream returned 200 with no usable content (stop_reason={stop_reason!r}).",
                     "Common causes:",
@@ -478,6 +499,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "model": resp.get("model"),
                 "raw_response": resp if not ok else None,  # surface for debugging
                 "error": error_msg,
+                "warning": warn_msg,
             })
         except urllib.error.HTTPError as e:
             try:

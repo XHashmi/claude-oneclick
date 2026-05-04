@@ -322,6 +322,7 @@ body:has(dialog[open]) .banner { display: none !important; }
 }
 .test-result:not(:empty) { display: block; }
 .test-result.ok    { border-left-color: var(--accent-2); }
+.test-result.warn  { border-left-color: var(--warn); color: var(--warn); }
 .test-result.error { border-left-color: var(--danger); }
 
 /* Panel separator inside the merged Setup tab */
