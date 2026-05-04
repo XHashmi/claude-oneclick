@@ -819,12 +819,14 @@ async function populateVersionInfo() {
   try {
     const r = await api("GET", "/api/update/check");
     const cur = (r.current_sha || "").slice(0, 7);
-    info.textContent = `${r.version || "0.0.0"}${cur ? " · " + cur : ""}${r.is_git ? "" : " (not a git checkout)"}`;
+    const branchLabel = r.branch ? ` · branch: ${escape(r.branch)}` : "";
+    info.textContent = `${r.version || "0.0.0"}${cur ? " · " + cur : ""}${branchLabel}${r.is_git ? "" : " (not a git checkout)"}`;
     if (r.error) {
       status.textContent = r.error;
     } else if (r.has_update) {
-      status.innerHTML = `<b class="warn-text">Update available</b> — ${(r.latest_sha || "").slice(0, 7)}${r.latest_message ? ` — “${escape(r.latest_message)}”` : ""}`;
-    } else if (r.is_git) {
+      const ahead = r.ahead_by ? ` (${r.ahead_by} commits ahead)` : "";
+      status.innerHTML = `<b class="warn-text">Update available</b> — ${(r.latest_sha || "").slice(0, 7)}${ahead}${r.latest_message ? ` — “${escape(r.latest_message)}”` : ""}`;
+    } else {
       status.textContent = "You're up to date.";
     }
   } catch (err) {

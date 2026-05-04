@@ -172,8 +172,9 @@
       <div class="row">
         <label>API key <span class="key-status" id="api-key-status"></span></label>
         <input id="f-api_key" type="password" autocomplete="off" placeholder="sk-..." />
-        <button class="btn small" id="btn-save-key" title="Save key (⌘/Ctrl+Enter)">Save key</button>
+        <button class="btn small" id="btn-save-key" title="Save key (⌘/Ctrl+Enter) — propagates to all presets in this provider group">Save key</button>
       </div>
+      <p class="muted small">Saving propagates to every preset in the same provider group (one API key = one provider account). If a sibling preset isn't picking it up, click <b>Save key</b> again with the same key — that re-runs propagation across siblings.</p>
       <div class="row">
         <label>Format</label>
         <div class="seg">

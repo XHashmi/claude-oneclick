@@ -33,6 +33,22 @@ GITHUB_OWNER = "xhashmi"
 GITHUB_REPO = "claude-oneclick"
 DEFAULT_BRANCH = "main"
 
+
+def _tracked_branch() -> str:
+    """Which branch to compare the local install against.
+
+    Reads ``updater.branch`` from config.json so users (and the install
+    scripts) can pin a specific branch. Defaults to ``main``. The
+    install scripts auto-detect this from the local git checkout when
+    available.
+    """
+    try:
+        from claude_oneclick.config import load
+        cfg = load()
+        return (cfg.get("updater", {}) or {}).get("branch") or DEFAULT_BRANCH
+    except Exception:
+        return DEFAULT_BRANCH
+
 # In-process cache: how long to remember a single GitHub commit lookup.
 _CHECK_TTL_SECONDS = 60 * 60  # 1 hour
 _cache: dict[str, Any] = {"checked_at": 0.0, "result": None}
@@ -85,12 +101,13 @@ def _local_dirty(root: Path) -> bool:
     return rc == 0 and bool(out)
 
 
-def _remote_head_sha() -> tuple[str | None, str | None]:
+def _remote_head_sha(branch: str | None = None) -> tuple[str | None, str | None]:
     """Returns (sha, commit_message_first_line) of the latest commit on the
     configured remote branch. Pulls from the public GitHub REST API — no
     auth needed for public repos.
     """
-    url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/commits/{DEFAULT_BRANCH}"
+    branch = branch or _tracked_branch()
+    url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/commits/{urllib.parse.quote(branch, safe='/')}"
     req = urllib.request.Request(url, headers={
         "Accept": "application/vnd.github+json",
         "User-Agent": f"claude-oneclick/{claude_oneclick.__version__}",
@@ -103,6 +120,30 @@ def _remote_head_sha() -> tuple[str | None, str | None]:
             return sha, (msg[0] if msg else "")
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ConnectionError, json.JSONDecodeError):
         return None, None
+
+
+def _compare_ahead(local_sha: str, remote_sha: str) -> int | None:
+    """How many commits ahead is `remote_sha` of `local_sha`? Returns None
+    if the GitHub compare API is unreachable; 0 if local is up-to-date or
+    has diverged forward; positive means a real update is available.
+    """
+    if not local_sha or not remote_sha or local_sha == remote_sha:
+        return 0
+    url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/compare/{local_sha}...{remote_sha}"
+    req = urllib.request.Request(url, headers={
+        "Accept": "application/vnd.github+json",
+        "User-Agent": f"claude-oneclick/{claude_oneclick.__version__}",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = json.loads(r.read().decode("utf-8"))
+            status = data.get("status")  # "ahead" | "behind" | "diverged" | "identical"
+            ahead = int(data.get("ahead_by") or 0)
+            # Only "ahead" means remote has new commits we should pull.
+            # "behind"/"diverged" → don't offer to "update" backwards.
+            return ahead if status == "ahead" else 0
+    except Exception:
+        return None
 
 
 def check(*, force: bool = False) -> dict[str, Any]:
@@ -144,17 +185,23 @@ def check(*, force: bool = False) -> dict[str, Any]:
         error = ("No local version stamp found. Re-run `claude-oneclick "
                  "_post_install` to pin the current install.")
 
-    has_update = bool(current and latest and current != latest)
-    # Decide which update method we'd use.
+    # Direction-aware: only flag "update available" when the remote is
+    # genuinely AHEAD of the local install. A different SHA could mean
+    # local is ahead (no update needed) or branches have diverged
+    # (don't silently overwrite the user's commits).
+    ahead = _compare_ahead(current, latest) if (current and latest) else 0
+    has_update = bool(ahead and ahead > 0)
     update_method = "git" if is_git else ("zip" if has_buildinfo else "none")
 
     result = {
         "is_git": is_git,
         "has_buildinfo": has_buildinfo,
         "update_method": update_method,
+        "branch": _tracked_branch(),
         "current_sha": current,
         "latest_sha": latest,
         "latest_message": msg,
+        "ahead_by": ahead,
         "has_update": has_update,
         "dirty": dirty,
         "checked_at": time.time(),

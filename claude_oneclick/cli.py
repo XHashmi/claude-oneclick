@@ -418,6 +418,32 @@ def _cmd_update(args: argparse.Namespace) -> int:
     return 2
 
 
+def _detect_tracked_branch() -> str | None:
+    """Best-effort: which GitHub branch should this install track for updates?
+
+    Looks at:
+      1. ``GITHUB_REF`` env var (set by the install scripts when run
+         from a fresh checkout).
+      2. Local ``git symbolic-ref --short HEAD``.
+      3. Defaults to None (caller falls back to "main").
+    """
+    import os as _os
+    import subprocess as _sub
+    ref = _os.environ.get("CLAUDE_ONECLICK_BRANCH") or _os.environ.get("GITHUB_REF_NAME")
+    if ref:
+        return ref
+    try:
+        proc = _sub.run(
+            ["git", "symbolic-ref", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=4, check=False,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
 def _write_buildinfo() -> str | None:
     """Stamp the install with whatever commit it's running. Returns the SHA.
 
@@ -513,6 +539,16 @@ def _cmd_post_install(args: argparse.Namespace) -> int:
         print(f"build pinned to commit {sha[:7]}")
     else:
         print("build SHA unknown — updater will fall back to live git lookups")
+
+    # Pin which branch the updater tracks. If not detected, the
+    # default ("main") is used.
+    branch = _detect_tracked_branch()
+    if branch:
+        from claude_oneclick.config import load as _ldcfg, save as _svcfg
+        _cfg = _ldcfg()
+        _cfg.setdefault("updater", {})["branch"] = branch
+        _svcfg(_cfg)
+        print(f"updates will track branch: {branch}")
     return 0
 
 
