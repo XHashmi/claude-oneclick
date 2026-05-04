@@ -33,6 +33,28 @@ async function api(method, path, body) {
   return data;
 }
 
+// Cross-browser fallback for the :has(dialog[open]) CSS rules: explicitly
+// add a class to <body> whenever any <dialog> opens, remove it when the
+// last dialog closes. Lets the .coc-dialog-open style hide floaters
+// (footer, wiring popover, banners, toasts) on browsers without :has().
+function _refreshDialogState() {
+  const anyOpen = !!document.querySelector("dialog[open]");
+  document.body.classList.toggle("coc-dialog-open", anyOpen);
+}
+// Patch every <dialog> we know about: showModal/show/close all flow
+// through these. Wrap once at startup; new dialogs added later still
+// fire the close event.
+for (const d of document.querySelectorAll("dialog")) {
+  const _show = d.showModal.bind(d);
+  d.showModal = function (...args) {
+    const r = _show(...args);
+    _refreshDialogState();
+    return r;
+  };
+  d.addEventListener("close", _refreshDialogState);
+  d.addEventListener("cancel", _refreshDialogState);
+}
+
 function toast(msg, kind) {
   const el = $("#toast");
   el.textContent = msg;
