@@ -110,6 +110,8 @@ function renderDetail() {
   $("#f-system_prompt_suffix").value = p.system_prompt_suffix || "";
   $("#f-disable_streaming").checked = !!p.disable_streaming;
   $("#f-prompt_cache_passthrough").checked = !!p.prompt_cache_passthrough;
+  $("#f-reasoning_enabled").checked = !!p.reasoning_enabled;
+  setReasoningEffortFromName(p.reasoning_effort || "medium");
   $("#f-notes").value = p.notes || "";
 
   renderHeaders(p.extra_headers || {});
@@ -145,6 +147,21 @@ function addAliasRow(k = "", v = "") {
 }
 
 function escape(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+
+const REASONING_LEVELS = ["low", "medium", "high"];
+function reasoningEffortName(v) { return REASONING_LEVELS[Math.max(0, Math.min(2, Number(v) - 1))] || "medium"; }
+function setReasoningEffortFromName(name) {
+  const idx = REASONING_LEVELS.indexOf(name);
+  const slider = $("#f-reasoning_effort");
+  slider.value = String((idx >= 0 ? idx : 1) + 1);
+  $("#f-reasoning_effort_label").textContent = REASONING_LEVELS[idx >= 0 ? idx : 1];
+}
+// Live label update as the slider moves.
+document.addEventListener("input", (e) => {
+  if (e.target && e.target.id === "f-reasoning_effort") {
+    $("#f-reasoning_effort_label").textContent = reasoningEffortName(e.target.value);
+  }
+});
 
 function collectKVs(rootSel, kCls, vCls) {
   const out = {};
@@ -332,6 +349,8 @@ function collectForm(name) {
     system_prompt_suffix: $("#f-system_prompt_suffix").value,
     disable_streaming: $("#f-disable_streaming").checked,
     prompt_cache_passthrough: $("#f-prompt_cache_passthrough").checked,
+    reasoning_enabled: $("#f-reasoning_enabled").checked,
+    reasoning_effort: reasoningEffortName($("#f-reasoning_effort").value),
   };
 }
 
@@ -419,8 +438,8 @@ function renderWizardProviders() {
       // Tailor the API-key hint by provider.
       const hints = {
         "deepseek": "Get a DeepSeek key at platform.deepseek.com → API Keys.",
-        "deepseek-v4": "Get a DeepSeek key at platform.deepseek.com → API Keys.",
-        "deepseek-v4-reasoner": "Get a DeepSeek key at platform.deepseek.com → API Keys.",
+        "deepseek-v4-pro": "Get a DeepSeek key at platform.deepseek.com → API Keys. Pro is the larger reasoning model.",
+        "deepseek-v4-flash": "Get a DeepSeek key at platform.deepseek.com → API Keys. Flash is the smaller, faster reasoning model.",
         "deepseek-reasoner": "Get a DeepSeek key at platform.deepseek.com → API Keys.",
         "nvidia-nims-llama": "Get an NVIDIA key at build.nvidia.com → your account → API keys.",
         "nvidia-nims-nemotron": "Get an NVIDIA key at build.nvidia.com → your account → API keys.",

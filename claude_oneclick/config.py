@@ -72,6 +72,11 @@ _PRESET_FIELDS_WITH_DEFAULTS: dict[str, Any] = {
     "system_prompt_suffix": "",
     "disable_streaming": False,
     "prompt_cache_passthrough": False,
+    # When True, sends OpenAI-standard `reasoning_effort: "medium"` on every
+    # request. Honored by DeepSeek V4 Pro/Flash, OpenAI o-series, and a few
+    # other reasoning-capable upstreams. Silently ignored by everyone else.
+    "reasoning_enabled": False,
+    "reasoning_effort": "medium",  # "low" | "medium" | "high"
     "routing_rules": [],
 }
 

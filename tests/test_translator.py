@@ -83,6 +83,20 @@ class RequestTranslatorTests(unittest.TestCase):
         out = anthropic_to_openai_request(req, PRESET)
         self.assertEqual(out["temperature"], 0.5)
 
+    def test_reasoning_flag_passthrough(self):
+        preset = dict(PRESET, reasoning_enabled=True, reasoning_effort="high")
+        req = {"model": "x", "messages": [{"role": "user", "content": "hi"}]}
+        out = anthropic_to_openai_request(req, preset)
+        self.assertEqual(out["reasoning_effort"], "high")
+        # When the toggle is off the field is absent.
+        out2 = anthropic_to_openai_request(req, dict(PRESET, reasoning_enabled=False))
+        self.assertNotIn("reasoning_effort", out2)
+        # An invalid effort falls back to medium.
+        out3 = anthropic_to_openai_request(
+            req, dict(PRESET, reasoning_enabled=True, reasoning_effort="ultra")
+        )
+        self.assertEqual(out3["reasoning_effort"], "medium")
+
 
 class ResponseTranslatorTests(unittest.TestCase):
     def test_basic_text_response(self):

@@ -1,8 +1,9 @@
 # claude-oneclick
 
 A **VPN-style one-click toggle** that routes **Claude Code** (CLI and the
-VSCode extension) to custom model endpoints — DeepSeek (V3, V4, V4-Reasoner,
-R1), NVIDIA NIMs (Llama 3.1 405B, Nemotron-70B, DeepSeek-R1), OpenRouter,
+VSCode extension) to custom model endpoints — DeepSeek (V3, V4 Pro,
+V4 Flash, R1), NVIDIA NIMs (Llama 3.1 405B, Nemotron-70B, DeepSeek-R1),
+OpenRouter,
 Groq, Together AI, Fireworks, Ollama, or any custom OpenAI-compatible /
 Anthropic-compatible backend.
 
@@ -13,7 +14,7 @@ back to talking to api.anthropic.com.
 ```
                   ┌─────────────────────────────────────┐
                   │ Claude OneClick                     │
-                  │  [ Active: DeepSeek V4 ]    ON  ●━━━│  ← VPN-style toggle
+                  │  [ Active: DeepSeek V4 Pro ] ON ●━━━│  ← VPN-style toggle
                   └─────────────────────────────────────┘
 ```
 
@@ -21,7 +22,7 @@ back to talking to api.anthropic.com.
 
 - **Big VPN-style toggle** in a local web UI. ON wires up env vars
   system-wide; OFF tears them down.
-- **Built-in presets** for DeepSeek V3 / V4 / V4-Reasoner / R1, NVIDIA
+- **Built-in presets** for DeepSeek V3 / V4 Pro / V4 Flash / R1, NVIDIA
   NIMs (Llama-405B, Nemotron-70B, DeepSeek-R1), OpenRouter, Groq, Together,
   Fireworks, and local Ollama.
 - **Custom presets** — point at any base URL, paste an API key, set
@@ -104,13 +105,17 @@ claude-oneclick ui
 
 Opens `http://127.0.0.1:47823` (the UI port). On the page:
 
-1. Pick a preset in the sidebar (e.g. **DeepSeek V4**).
+1. Pick a preset in the sidebar (e.g. **DeepSeek V4 Pro**).
 2. Click the **General** tab → paste your API key → click **Save key**.
 3. Click the **Models** tab → click **Refresh** to pull the live model
-   list from the provider → pick `deepseek-v4` (or whatever the live id
-   is) for the main model and a smaller one for the small/fast slot.
-4. Click **Use this preset**.
-5. Flip the big toggle in the header **ON**.
+   list from the provider → pick `deepseek-v4-pro` for the main model
+   and `deepseek-v4-flash` for the small/fast slot (or whatever ids the
+   provider serves).
+4. (Optional) Click the **Advanced** tab → tick **Enable reasoning mode**
+   to send `reasoning_effort` on every request — DeepSeek V4 Pro and
+   Flash both honor it; other upstreams ignore the field.
+5. Click **Use this preset**.
+6. Flip the big toggle in the header **ON**.
 
 That's it — open a new terminal or VSCode window, run `claude`, and you're
 talking to DeepSeek V4. Flip OFF to go back to Anthropic.

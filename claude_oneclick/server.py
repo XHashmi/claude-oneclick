@@ -237,7 +237,8 @@ class _Handler(BaseHTTPRequestHandler):
                   "sampling", "request_timeout_seconds", "retries",
                   "retry_backoff", "system_prompt_prefix",
                   "system_prompt_suffix", "disable_streaming",
-                  "prompt_cache_passthrough", "routing_rules"):
+                  "prompt_cache_passthrough", "reasoning_enabled",
+                  "reasoning_effort", "routing_rules"):
             if k in body and body[k] is not None:
                 merged[k] = body[k]
         merged["name"] = name

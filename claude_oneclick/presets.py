@@ -34,27 +34,31 @@ BUILTIN_PRESETS: list[dict[str, Any]] = [
         "builtin": True,
     },
     {
-        "name": "deepseek-v4",
-        "label": "DeepSeek V4",
+        "name": "deepseek-v4-pro",
+        "label": "DeepSeek V4 Pro",
         "base_url": "https://api.deepseek.com",
         "api_key": "",
-        "model": "deepseek-v4",
-        "small_fast_model": "deepseek-chat",
+        "model": "deepseek-v4-pro",
+        "small_fast_model": "deepseek-v4-flash",
         "format": "openai",
-        "notes": "Pins to DeepSeek-V4 explicitly. If the upstream id differs, "
-                 "use 'Refresh model list' to pick the live one.",
+        "notes": "DeepSeek V4 Pro — the larger reasoning model. Tick "
+                 "'Enable reasoning mode' on the Advanced tab to turn on "
+                 "extended thinking.",
+        "reasoning_enabled": True,
         "builtin": True,
     },
     {
-        "name": "deepseek-v4-reasoner",
-        "label": "DeepSeek V4 Reasoner",
+        "name": "deepseek-v4-flash",
+        "label": "DeepSeek V4 Flash",
         "base_url": "https://api.deepseek.com",
         "api_key": "",
-        "model": "deepseek-v4-reasoner",
-        "small_fast_model": "deepseek-v4",
+        "model": "deepseek-v4-flash",
+        "small_fast_model": "deepseek-v4-flash",
         "format": "openai",
-        "notes": "DeepSeek-V4 reasoner for the main slot, V4 chat for the "
-                 "small/fast slot.",
+        "notes": "DeepSeek V4 Flash — the smaller, faster reasoning model. "
+                 "Good for the small/fast slot or as the only model on tight "
+                 "latency budgets.",
+        "reasoning_enabled": True,
         "builtin": True,
     },
     {

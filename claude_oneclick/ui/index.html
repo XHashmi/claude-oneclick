@@ -199,6 +199,15 @@
       <div class="row"><label>System prompt suffix</label><textarea id="f-system_prompt_suffix" rows="3"></textarea></div>
       <div class="row check"><label><input type="checkbox" id="f-disable_streaming" /> Disable streaming (for upstreams with buggy SSE)</label></div>
       <div class="row check"><label><input type="checkbox" id="f-prompt_cache_passthrough" /> Pass <code>cache_control</code> markers to upstream</label></div>
+      <div class="row check"><label><input type="checkbox" id="f-reasoning_enabled" /> Enable reasoning mode (sends <code>reasoning_effort</code> on every request — DeepSeek V4 Pro/Flash, OpenAI o-series, etc.)</label></div>
+      <div class="row slider-row">
+        <label>Reasoning effort</label>
+        <div class="slider-wrap">
+          <input type="range" id="f-reasoning_effort" min="1" max="3" step="1" value="2" />
+          <div class="slider-labels"><span data-v="1">low</span><span data-v="2">medium</span><span data-v="3">high</span></div>
+        </div>
+        <span class="slider-value" id="f-reasoning_effort_label">medium</span>
+      </div>
       <div class="row"><label>Notes</label><textarea id="f-notes" rows="3"></textarea></div>
     </div>
 

@@ -175,6 +175,16 @@ def anthropic_to_openai_request(req: dict[str, Any], preset: dict[str, Any]) -> 
     if stop:
         out["stop"] = stop
 
+    # Reasoning toggle: forwards as the OpenAI-standard `reasoning_effort`
+    # field, which DeepSeek V4 Pro/Flash, OpenAI o-series, and a few other
+    # reasoning models honor. Upstreams that don't speak it ignore the
+    # extra field.
+    if preset.get("reasoning_enabled"):
+        effort = preset.get("reasoning_effort") or "medium"
+        if effort not in ("low", "medium", "high"):
+            effort = "medium"
+        out["reasoning_effort"] = effort
+
     # Tool definitions.
     if req.get("tools"):
         out["tools"] = []
