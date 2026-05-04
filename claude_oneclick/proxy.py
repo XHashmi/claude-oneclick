@@ -257,6 +257,16 @@ def _flatten_anthropic_content(content: Any) -> tuple[str, list[dict[str, Any]],
         btype = block.get("type")
         if btype == "text":
             text_parts.append(block.get("text") or "")
+        elif btype == "thinking":
+            # Claude Code re-sends thinking blocks from previous turns
+            # in conversation history. The upstream models we proxy to
+            # don't speak Anthropic's thinking-block protocol, but
+            # silently dropping the thought wastes useful context. Pass
+            # it through as text under a marker so the next-turn model
+            # can still see what the assistant was thinking about.
+            t = block.get("thinking") or ""
+            if t:
+                text_parts.append(f"[previous thinking]\n{t}")
         elif btype == "tool_use":
             tool_uses.append({
                 "id": block.get("id") or f"call_{uuid.uuid4().hex[:8]}",
@@ -1261,13 +1271,14 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(200, anth)
 
     def _stream_back(self, up: Any, model: str, preset: dict | None = None) -> None:
+        log = logging.getLogger("claude_oneclick.proxy")
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
-        # Deliberately NOT sending Connection: keep-alive: BaseHTTPRequestHandler
-        # defaults to HTTP/1.0 where keep-alive requires explicit
-        # Content-Length, which we can't know for a stream. Letting it close
-        # at end-of-handler is what signals "stream over" to the client.
+        # Explicitly close-on-end so Claude Code's HTTP client doesn't
+        # try to reuse the connection while we're still draining the
+        # upstream socket.
+        self.send_header("Connection", "close")
         self.end_headers()
         translator = _StreamTranslator(model)
         if preset:
@@ -1321,6 +1332,15 @@ class _Handler(BaseHTTPRequestHandler):
                     self.wfile.flush()
                 except Exception:
                     break
+            # Close the upstream socket so we don't leak file
+            # descriptors when the client disconnects mid-stream
+            # or when [DONE] arrives but upstream stays open.
+            try:
+                up.close()
+            except Exception:
+                pass
+            log.info("← upstream stream closed (model=%s, real_text=%s, finish=%s)",
+                     model, translator._real_text_emitted, translator.finish_reason)
 
 
 # ---------- daemon control -------------------------------------------------

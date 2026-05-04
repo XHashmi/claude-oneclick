@@ -111,6 +111,32 @@ class RequestTranslatorTests(unittest.TestCase):
         out = anthropic_to_openai_request(req, preset)
         self.assertNotIn("response_format", out)
 
+    def test_history_thinking_blocks_become_text_marker(self):
+        # Claude Code re-sends previous-turn thinking blocks in the
+        # conversation history. The upstream model can't read Anthropic's
+        # thinking-block protocol natively, but silently dropping them
+        # wastes useful context — pass them through as marked text so
+        # the next-turn model still sees what the assistant was thinking.
+        preset = dict(PRESET)
+        req = {
+            "model": "x",
+            "messages": [
+                {"role": "user", "content": "what is 2+2?"},
+                {"role": "assistant", "content": [
+                    {"type": "thinking", "thinking": "User wants arithmetic. 2+2=4."},
+                    {"type": "text", "text": "4"},
+                ]},
+                {"role": "user", "content": "and 3+3?"},
+            ],
+        }
+        out = anthropic_to_openai_request(req, preset)
+        # Find the assistant message in the outbound payload.
+        assistant_msg = next(m for m in out["messages"] if m["role"] == "assistant")
+        # Should contain BOTH the marker and the visible answer.
+        self.assertIn("[previous thinking]", assistant_msg["content"])
+        self.assertIn("User wants arithmetic", assistant_msg["content"])
+        self.assertIn("4", assistant_msg["content"])
+
     def test_anthropic_typed_tools_get_synthesized_schemas(self):
         # Anthropic's typed tools (bash_20241022, text_editor_*, etc.) ship
         # without an input_schema. Without translation, third-party models
