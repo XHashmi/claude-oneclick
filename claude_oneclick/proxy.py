@@ -49,6 +49,27 @@ def _setup_logging() -> logging.Logger:
     return log
 
 
+def _join_endpoint(base: str, endpoint: str) -> str:
+    """Append an endpoint path to a base URL, tolerating either convention.
+
+    Many providers' docs publish ``https://host/api/v1`` as the base
+    (OpenAI SDK convention), others publish ``https://host`` and expect
+    you to add ``/v1/...`` yourself. We accept either: if the base
+    already ends in ``/v1``, we don't add it again.
+    """
+    base = base.rstrip("/")
+    endpoint = endpoint.lstrip("/")
+    if base.endswith("/v1"):
+        # endpoint may itself start with v1/... — strip that to avoid
+        # producing a doubled segment (`v1/v1/chat/completions`).
+        if endpoint.startswith("v1/"):
+            endpoint = endpoint[len("v1/"):]
+        return f"{base}/{endpoint}"
+    if not endpoint.startswith("v1/"):
+        endpoint = f"v1/{endpoint}"
+    return f"{base}/{endpoint}"
+
+
 # ---------- request translation ---------------------------------------------
 
 
@@ -502,7 +523,7 @@ class _Handler(BaseHTTPRequestHandler):
         if not base:
             self._send_json(400, {"error": {"message": "no active preset / base_url"}})
             return
-        url = f"{base}/v1/models"
+        url = _join_endpoint(base, "models")
         headers = {"Accept": "application/json"}
         api_key = preset.get("api_key") or ""
         if api_key:
@@ -555,7 +576,7 @@ class _Handler(BaseHTTPRequestHandler):
             oai_req.setdefault("stream_options", {"include_usage": True})
 
         body = json.dumps(oai_req).encode("utf-8")
-        url = f"{base}/v1/chat/completions"
+        url = _join_endpoint(base, "chat/completions")
         headers = {
             "Content-Type": "application/json",
             "Accept": "text/event-stream" if wants_stream else "application/json",

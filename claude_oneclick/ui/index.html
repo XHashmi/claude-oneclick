@@ -131,6 +131,13 @@
       </div>
       <div class="row"><label>Label</label><input id="f-label" /></div>
       <div class="row"><label>Base URL</label><input id="f-base_url" placeholder="https://api.deepseek.com" /></div>
+      <p class="muted small field-hint">
+        The provider's API host. With or without <code>/v1</code> at the
+        end — both work. Examples: <code>https://api.deepseek.com</code>,
+        <code>https://integrate.api.nvidia.com</code>,
+        <code>https://openrouter.ai/api/v1</code>,
+        <code>http://localhost:11434</code>.
+      </p>
       <div class="row">
         <label>API key <span class="key-status" id="api-key-status"></span></label>
         <input id="f-api_key" type="password" autocomplete="off" placeholder="sk-..." />
@@ -139,10 +146,16 @@
       <div class="row">
         <label>Format</label>
         <div class="seg">
-          <label><input type="radio" name="format" value="openai" /> OpenAI-compatible (use proxy)</label>
-          <label><input type="radio" name="format" value="anthropic" /> Anthropic (direct)</label>
+          <label><input type="radio" name="format" value="openai" /> <b>OpenAI-compatible</b> — DeepSeek, NIMs, OpenRouter, Groq, Ollama, etc.</label>
+          <label><input type="radio" name="format" value="anthropic" /> <b>Anthropic-compatible</b> — api.anthropic.com or a server that already speaks <code>/v1/messages</code></label>
         </div>
       </div>
+      <p class="muted small field-hint">
+        Pick OpenAI-compatible if the provider's docs show
+        <code>/v1/chat/completions</code>. Pick Anthropic only when the
+        upstream natively serves <code>/v1/messages</code> in Anthropic's
+        request shape — most third-party providers don't.
+      </p>
       <div class="actions">
         <button class="btn primary" id="btn-use">Use this preset</button>
         <button class="btn" id="btn-save">Save changes</button>
@@ -154,10 +167,13 @@
       <div class="hint">
         <b>How to use this tab:</b> click <b>Refresh</b> to pull the live
         model list from the provider (uses <code>GET /v1/models</code>, or
-        Ollama's <code>/api/tags</code>). Then pick the main model and a
-        smaller/faster one for Claude Code's "small fast" slot. The
-        dropdown is also a free-text input — type any model id the
-        provider serves.
+        Ollama's <code>/api/tags</code>). For NVIDIA NIMs that's
+        <i>everything</i> they host right now — Llama, Nemotron, DeepSeek
+        V4 Pro/Flash, GLM 4 / 4.5, Phi, Mistral, etc. — pulled
+        directly from <code>build.nvidia.com</code> so you always see the
+        current catalog. Pick the main model and a smaller/faster one
+        for Claude Code's "small fast" slot. The dropdown is also a
+        free-text input — type any model id the provider serves.
       </div>
       <div class="row">
         <label>Model</label>

@@ -93,7 +93,12 @@ def list_models(
         payload = _http_get(f"{base}/api/tags", {}, timeout=timeout)
         ids = _ids_from_ollama_tags(payload)
     else:
-        url = f"{base}/v1/models"
+        # Tolerate base URLs that include `/v1` (OpenAI-SDK convention) or
+        # don't (DeepSeek docs, NVIDIA NIMs docs).
+        if base.endswith("/v1"):
+            url = f"{base}/models"
+        else:
+            url = f"{base}/v1/models"
         headers = {"Accept": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"

@@ -5,6 +5,7 @@ from claude_oneclick.proxy import (
     anthropic_to_openai_request,
     openai_to_anthropic_response,
     _StreamTranslator,
+    _join_endpoint,
 )
 
 
@@ -225,6 +226,29 @@ def _decode(raw: bytes) -> dict:
         if line.startswith("data: "):
             return json.loads(line[len("data: "):])
     return {}
+
+
+class JoinEndpointTests(unittest.TestCase):
+    """Both URL conventions must produce one (and only one) `/v1/...`."""
+
+    def test_base_without_v1(self):
+        self.assertEqual(_join_endpoint("https://api.deepseek.com", "chat/completions"),
+                         "https://api.deepseek.com/v1/chat/completions")
+        self.assertEqual(_join_endpoint("https://api.deepseek.com/", "models"),
+                         "https://api.deepseek.com/v1/models")
+
+    def test_base_with_v1(self):
+        self.assertEqual(_join_endpoint("https://openrouter.ai/api/v1", "chat/completions"),
+                         "https://openrouter.ai/api/v1/chat/completions")
+        self.assertEqual(_join_endpoint("https://api.together.xyz/v1/", "models"),
+                         "https://api.together.xyz/v1/models")
+
+    def test_endpoint_already_has_v1(self):
+        # Defensive: if a caller passes "v1/chat/completions" we don't double up.
+        self.assertEqual(_join_endpoint("https://api.deepseek.com", "v1/chat/completions"),
+                         "https://api.deepseek.com/v1/chat/completions")
+        self.assertEqual(_join_endpoint("https://openrouter.ai/api/v1", "v1/chat/completions"),
+                         "https://openrouter.ai/api/v1/chat/completions")
 
 
 if __name__ == "__main__":
