@@ -330,6 +330,15 @@
           </div>
           <span class="slider-value" id="f-reasoning_effort_label">medium</span>
         </div>
+        <div class="row">
+          <label>Show reasoning as</label>
+          <select id="f-stream_reasoning">
+            <option value="thinking_block">Collapsible thoughts (Claude Code default)</option>
+            <option value="text_prefix">Plain text with 🧠 prefix (use if responses get stuck)</option>
+            <option value="hidden">Hidden (only show the final answer)</option>
+          </select>
+        </div>
+        <p class="muted small">If responses hang on reasoning models, try <b>Plain text with 🧠 prefix</b> — the default thinking-block shape requires a cryptographic signature that third-party providers can't generate, and some clients refuse the response without one.</p>
       </fieldset>
 
       <div class="row">

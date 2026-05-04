@@ -506,6 +506,9 @@ class _StreamTranslator:
         self._content_carry = ""  # bytes from a half-tag, deferred
         self._thinking_block_open = False
         self._thinking_index: int | None = None
+        # How to render reasoning to the client. Set by handle_chunk's
+        # caller, since the translator itself doesn't have the preset.
+        self.stream_reasoning_mode: str = "thinking_block"
 
     def start(self) -> Iterator[bytes]:
         self.started = True
@@ -549,21 +552,44 @@ class _StreamTranslator:
         rc = delta.get("reasoning_content") or delta.get("reasoning")
         if isinstance(rc, str) and rc:
             self._reasoning_buf += rc
-            if not self._thinking_block_open and not self.text_block_open:
-                self._thinking_index = self.next_index
-                self.next_index += 1
-                self._thinking_block_open = True
-                yield _sse_event("content_block_start", {
-                    "type": "content_block_start",
-                    "index": self._thinking_index,
-                    "content_block": {"type": "thinking", "thinking": ""},
-                })
-            if self._thinking_block_open:
+            mode = self.stream_reasoning_mode
+            if mode == "hidden":
+                pass  # silent buffering only
+            elif mode == "text_prefix":
+                # Universal fallback: emit reasoning as plain text with a
+                # 🧠 prefix on the FIRST chunk so the user can see progress
+                # even on clients that don't render thinking blocks.
+                if not self.text_block_open:
+                    self.text_index = self.next_index
+                    self.next_index += 1
+                    self.text_block_open = True
+                    yield _sse_event("content_block_start", {
+                        "type": "content_block_start",
+                        "index": self.text_index,
+                        "content_block": {"type": "text", "text": ""},
+                    })
+                    rc = "🧠 " + rc
                 yield _sse_event("content_block_delta", {
                     "type": "content_block_delta",
-                    "index": self._thinking_index,
-                    "delta": {"type": "thinking_delta", "thinking": rc},
+                    "index": self.text_index,
+                    "delta": {"type": "text_delta", "text": rc},
                 })
+            else:  # "thinking_block" — Anthropic-shape, best UX where supported
+                if not self._thinking_block_open and not self.text_block_open:
+                    self._thinking_index = self.next_index
+                    self.next_index += 1
+                    self._thinking_block_open = True
+                    yield _sse_event("content_block_start", {
+                        "type": "content_block_start",
+                        "index": self._thinking_index,
+                        "content_block": {"type": "thinking", "thinking": ""},
+                    })
+                if self._thinking_block_open:
+                    yield _sse_event("content_block_delta", {
+                        "type": "content_block_delta",
+                        "index": self._thinking_index,
+                        "delta": {"type": "thinking_delta", "thinking": rc},
+                    })
 
         # text delta — strip inline <think>...</think> tags across
         # chunk boundaries before emitting.
@@ -573,8 +599,17 @@ class _StreamTranslator:
             if visible:
                 self._real_text_emitted = True
                 # Real text means reasoning is over — close the
-                # thinking block before opening text.
+                # thinking block before opening text. Anthropic's
+                # spec wants a signature_delta before close so the
+                # client doesn't hang waiting for cryptographic proof
+                # of the thought (we use a stub since third-party
+                # upstreams can't sign with Anthropic's keys).
                 if self._thinking_block_open and self._thinking_index is not None:
+                    yield _sse_event("content_block_delta", {
+                        "type": "content_block_delta",
+                        "index": self._thinking_index,
+                        "delta": {"type": "signature_delta", "signature": ""},
+                    })
                     yield _sse_event("content_block_stop", {
                         "type": "content_block_stop",
                         "index": self._thinking_index,
@@ -694,6 +729,11 @@ class _StreamTranslator:
             })
             self.text_block_open = False
         if self._thinking_block_open and self._thinking_index is not None:
+            yield _sse_event("content_block_delta", {
+                "type": "content_block_delta",
+                "index": self._thinking_index,
+                "delta": {"type": "signature_delta", "signature": ""},
+            })
             yield _sse_event("content_block_stop", {
                 "type": "content_block_stop",
                 "index": self._thinking_index,
@@ -1051,7 +1091,7 @@ class _Handler(BaseHTTPRequestHandler):
                 return
 
         if wants_stream:
-            self._stream_back(up, oai_req["model"])
+            self._stream_back(up, oai_req["model"], preset)
         else:
             try:
                 raw_resp = up.read()
@@ -1071,7 +1111,7 @@ class _Handler(BaseHTTPRequestHandler):
                 pass
             self._send_json(200, anth)
 
-    def _stream_back(self, up: Any, model: str) -> None:
+    def _stream_back(self, up: Any, model: str, preset: dict | None = None) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -1081,6 +1121,10 @@ class _Handler(BaseHTTPRequestHandler):
         # at end-of-handler is what signals "stream over" to the client.
         self.end_headers()
         translator = _StreamTranslator(model)
+        if preset:
+            mode = preset.get("stream_reasoning") or "thinking_block"
+            if mode in ("thinking_block", "text_prefix", "hidden"):
+                translator.stream_reasoning_mode = mode
         for chunk_bytes in translator.start():
             self.wfile.write(chunk_bytes)
             self.wfile.flush()
