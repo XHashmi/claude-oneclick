@@ -1151,6 +1151,10 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/v1/models"):
             self._proxy_models()
             return
+        # Surface unknown GETs in the log so we can spot when Claude Code
+        # is calling an endpoint we haven't implemented.
+        log = logging.getLogger("claude_oneclick.proxy")
+        log.warning("UNKNOWN GET endpoint: %s", self.path)
         self._send_json(404, {"error": {"type": "not_found", "message": self.path}})
 
     def do_POST(self) -> None:  # noqa: N802
@@ -1165,6 +1169,8 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/v1/messages"):
             self._handle_messages()
             return
+        log = logging.getLogger("claude_oneclick.proxy")
+        log.warning("UNKNOWN POST endpoint: %s", self.path)
         self._send_json(404, {"error": {"type": "not_found", "message": self.path}})
 
     # -- /v1/models passthrough ---------------------------------------------

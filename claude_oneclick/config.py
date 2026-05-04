@@ -93,14 +93,16 @@ _PRESET_FIELDS_WITH_DEFAULTS: dict[str, Any] = {
     # How to surface reasoning_content during streaming:
     #   "thinking_block" — emit Anthropic-style thinking blocks so
     #     Claude Code shows the chain-of-thought as a collapsible
-    #     section. Provides the best UX when the client supports
-    #     unsigned third-party thinking blocks.
+    #     section. Looks great when it works, but Anthropic's spec
+    #     requires a cryptographic signature_delta; third-party
+    #     providers can't sign with Anthropic's keys, and some
+    #     clients silently stall when the signature is empty.
     #   "text_prefix"    — prepend each reasoning chunk with "🧠 "
-    #     and stream as plain text. Universal fallback for clients
-    #     that reject unsigned thinking blocks.
+    #     and stream as plain text. Universal — works on every
+    #     client because it's just text. Default.
     #   "hidden"         — buffer silently, never emit. Use only if
     #     reasoning leakage is causing client-side errors.
-    "stream_reasoning": "thinking_block",
+    "stream_reasoning": "text_prefix",
     "request_timeout_seconds": 600,
     "retries": 2,
     "retry_backoff": 1.5,
