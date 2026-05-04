@@ -282,11 +282,15 @@ def anthropic_to_openai_request(req: dict[str, Any], preset: dict[str, Any]) -> 
             out[k_oai] = v
     # "No output cap" mode — preset-pinned. Claude Code always sends
     # max_tokens (Anthropic requires it), but most OpenAI-style upstreams
-    # treat it as optional and run to the model's natural stop if it's
-    # absent. Strip the field so users can let DeepSeek/Groq/NIMs/
-    # OpenRouter actually finish long answers.
+    # cut off generations at whatever cap was sent. Setting an
+    # astronomically large value lets the model run until its OWN
+    # internal ceiling (every current model has one well below this),
+    # while still keeping an upper bound so a misbehaving model can't
+    # produce an infinite stream. Stripping max_tokens entirely was
+    # tempting, but in practice some chat models then ramble forever
+    # without ever emitting their EOT token.
     if preset.get("no_output_cap"):
-        out.pop("max_tokens", None)
+        out["max_tokens"] = 65536
     elif "max_tokens" not in out:
         out["max_tokens"] = 4096
 
@@ -601,6 +605,28 @@ class _StreamTranslator:
     def finish(self) -> Iterator[bytes]:
         if not self.started:
             yield from self.start()
+        # Stream ended. Flush any deferred-from-end-of-chunk carry —
+        # if it's not actually a `<think>` opener, it's just trailing
+        # response text that was held back in case it was a partial
+        # tag. Forgetting this dropped final words/punctuation.
+        if self._content_carry and not self._content_carry.lower().startswith("<think"):
+            tail = self._content_carry
+            self._content_carry = ""
+            self._real_text_emitted = True
+            if not self.text_block_open:
+                self.text_index = self.next_index
+                self.next_index += 1
+                self.text_block_open = True
+                yield _sse_event("content_block_start", {
+                    "type": "content_block_start",
+                    "index": self.text_index,
+                    "content_block": {"type": "text", "text": ""},
+                })
+            yield _sse_event("content_block_delta", {
+                "type": "content_block_delta",
+                "index": self.text_index,
+                "delta": {"type": "text_delta", "text": tail},
+            })
         # If the model produced ONLY chain-of-thought (reasoning_content
         # or unclosed <think>) and never emitted real text, surface the
         # reasoning so Claude Code shows *something* instead of "No

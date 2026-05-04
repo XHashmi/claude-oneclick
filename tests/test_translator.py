@@ -111,16 +111,19 @@ class RequestTranslatorTests(unittest.TestCase):
         out = anthropic_to_openai_request(req, preset)
         self.assertNotIn("response_format", out)
 
-    def test_no_output_cap_strips_max_tokens(self):
+    def test_no_output_cap_uses_high_ceiling(self):
+        # With "No output cap" we override Claude Code's modest cap with
+        # a value bigger than any current model's internal ceiling, so
+        # the upstream stops at its OWN limit (and we still have an
+        # upper bound to prevent runaway streams).
         preset = dict(PRESET, no_output_cap=True)
-        # Even when Claude Code sends a max_tokens we should strip it.
         req = {
             "model": "x",
             "messages": [{"role": "user", "content": "hi"}],
             "max_tokens": 16384,
         }
         out = anthropic_to_openai_request(req, preset)
-        self.assertNotIn("max_tokens", out)
+        self.assertEqual(out["max_tokens"], 65536)
 
     def test_max_tokens_default_when_cap_not_disabled(self):
         # Without no_output_cap and no explicit value anywhere, the
@@ -313,6 +316,26 @@ class StreamTranslatorTests(unittest.TestCase):
         # input_json_delta carries argument fragments
         deltas = [e for e in events if e["type"] == "content_block_delta"]
         self.assertTrue(any(d["delta"].get("type") == "input_json_delta" for d in deltas))
+
+    def test_trailing_chars_dont_get_swallowed_by_think_carry(self):
+        # The <think>-stripping state machine defers the last few chars
+        # of each chunk in case they're a partial "<think". If the
+        # stream ends WITHOUT a real <think tag forming, those chars
+        # must still be flushed — otherwise the user loses the end of
+        # the response (e.g. a trailing "<" from "</answer>").
+        events = self._events([
+            {"choices": [{"delta": {"content": "Hi! How can I help"}}]},
+            {"choices": [{"delta": {"content": " you today? <"}}]},  # ends with "<"
+            {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+        ])
+        # Reassemble all text deltas the user would have seen.
+        text = "".join(
+            e["delta"]["text"] for e in events
+            if e["type"] == "content_block_delta"
+            and e["delta"].get("type") == "text_delta"
+        )
+        self.assertIn("Hi! How can I help you today?", text)
+        self.assertTrue(text.rstrip().endswith("<"))  # the "<" wasn't lost
 
 
 def _decode(raw: bytes) -> dict:
