@@ -2,7 +2,7 @@
 
 # Static version. The "real" version users see is augmented at install time
 # with the commit SHA via `_buildinfo.py` (written by `_post_install`).
-__base_version__ = "0.1.0"
+__base_version__ = "0.2.0"
 
 
 def _read_build_sha() -> str | None:

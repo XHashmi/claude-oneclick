@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "claude-oneclick"
-version = "0.1.0"
+version = "0.2.0"
 description = "VPN-style one-click toggle to route Claude Code (CLI + VSCode) to custom model endpoints (DeepSeek, NVIDIA NIMs, OpenRouter, Ollama, ...)."
 readme = "README.md"
 requires-python = ">=3.9"

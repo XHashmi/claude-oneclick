@@ -134,9 +134,14 @@ claude-oneclick _post_install
 
 ### Via package manager (any of these)
 
-The repo `pyproject.toml` works with every standard Python tool, so any
-of these install the CLI from GitHub directly — no PyPI publishing
-required:
+After the next tagged release lands on PyPI:
+
+```sh
+pip install claude-oneclick    # also: pipx install claude-oneclick / uv tool install claude-oneclick
+claude-oneclick _post_install
+```
+
+Until then (or to track main directly), install from the repo:
 
 ```sh
 # pip (user install)
