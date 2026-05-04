@@ -404,11 +404,30 @@ class _StreamTranslator:
 
 # ---------- HTTP handler ----------------------------------------------------
 
+_MAX_BODY_BYTES = 32 * 1024 * 1024  # 32 MiB safety cap on any single request
+
+
 class _Handler(BaseHTTPRequestHandler):
     server_version = "claude-oneclick-proxy/0.1"
 
     def log_message(self, format: str, *args: Any) -> None:
         logging.getLogger("claude_oneclick.proxy").info("%s - " + format, self.client_address[0], *args)
+
+    def _host_ok(self) -> bool:
+        """Reject foreign Host headers (DNS rebinding defense).
+
+        Anyone who can DNS-rebind to 127.0.0.1 could otherwise have your
+        browser drain your provider's API quota through this proxy.
+        """
+        cfg = load()
+        host = (self.headers.get("Host") or "").lower().strip()
+        port = int(cfg.get("proxy", {}).get("port", 47824))
+        allowed = {
+            f"127.0.0.1:{port}", "127.0.0.1",
+            f"localhost:{port}", "localhost",
+            f"[::1]:{port}", "[::1]",
+        }
+        return host in allowed
 
     def _send_json(self, status: int, payload: Any) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -419,6 +438,9 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802
+        if not self._host_ok():
+            self._send_json(403, {"error": {"type": "host_not_allowed"}})
+            return
         if self.path == "/healthz":
             self._send_json(200, {"ok": True})
             return
@@ -428,6 +450,9 @@ class _Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": {"type": "not_found", "message": self.path}})
 
     def do_POST(self) -> None:  # noqa: N802
+        if not self._host_ok():
+            self._send_json(403, {"error": {"type": "host_not_allowed"}})
+            return
         if self.path.startswith("/v1/messages"):
             self._handle_messages()
             return
@@ -468,6 +493,9 @@ class _Handler(BaseHTTPRequestHandler):
         log = logging.getLogger("claude_oneclick.proxy")
         try:
             length = int(self.headers.get("Content-Length") or 0)
+            if length < 0 or length > _MAX_BODY_BYTES:
+                self._send_json(413, {"error": {"message": "request too large"}})
+                return
             raw = self.rfile.read(length) if length else b""
             req = json.loads(raw.decode("utf-8")) if raw else {}
         except Exception as e:

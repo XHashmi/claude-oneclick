@@ -7,7 +7,7 @@ import platform
 import sys
 from typing import Any
 
-from claude_oneclick import __version__, launcher, proxy, server, system_env
+from claude_oneclick import __version__, autostart, launcher, proxy, server, system_env
 from claude_oneclick.config import (
     all_presets,
     delete_preset,
@@ -259,6 +259,26 @@ def _cmd_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_autostart(args: argparse.Namespace) -> int:
+    if args.action == "enable":
+        ok = autostart.enable()
+        print(f"autostart: {'enabled' if ok else 'failed'} ({autostart.describe()})")
+        return 0 if ok else 1
+    if args.action == "disable":
+        ok = autostart.disable()
+        print(f"autostart: {'disabled' if ok else 'was not enabled'}")
+        return 0
+    print(f"autostart: {'enabled' if autostart.is_enabled() else 'disabled'}")
+    print(f"location:  {autostart.describe()}")
+    return 0
+
+
+def _cmd_boot(args: argparse.Namespace) -> int:
+    """Internal: re-apply state at login. Called by the autostart entry."""
+    system_env.apply_state()
+    return 0
+
+
 def _cmd_post_install(args: argparse.Namespace) -> int:
     """Internal hook: install (or remove) shell rc / Windows env / VSCode / launcher."""
     from claude_oneclick import shell as posix_shell
@@ -352,6 +372,13 @@ def _build_parser() -> argparse.ArgumentParser:
     pex.set_defaults(func=_cmd_export)
     pim = sub.add_parser("import", help="import a config.json"); pim.add_argument("path")
     pim.set_defaults(func=_cmd_import)
+
+    pas = sub.add_parser("autostart", help="enable/disable starting at system login")
+    pas.add_argument("action", choices=["enable", "disable", "status"], nargs="?", default="status")
+    pas.set_defaults(func=_cmd_autostart)
+
+    pb = sub.add_parser("_boot", help=argparse.SUPPRESS)
+    pb.set_defaults(func=_cmd_boot)
 
     ppi = sub.add_parser("_post_install", help=argparse.SUPPRESS)
     ppi.add_argument("--uninstall", action="store_true")

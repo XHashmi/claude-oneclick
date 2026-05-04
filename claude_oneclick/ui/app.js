@@ -265,7 +265,7 @@ for (const t of $$(".tab")) {
 // --- settings dialog -------------------------------------------------------
 
 const dlg = $("#settings-dialog");
-$("#btn-settings").addEventListener("click", () => {
+$("#btn-settings").addEventListener("click", async () => {
   $("#set-ui-port").value = state.ui.port || 47823;
   $("#set-proxy-port").value = state.proxy.port || 47824;
   $("#set-theme").value = state.ui.theme || "auto";
@@ -274,6 +274,15 @@ $("#btn-settings").addEventListener("click", () => {
   $("#set-open_browser").checked = !!state.ui.open_browser_on_launch;
   $("#set-skip_login").checked = !!state.skip_vscode_login;
   $("#set-cache_ttl").value = (state.model_discovery && state.model_discovery.cache_ttl_seconds) || 600;
+  // Boot-time autostart lives on disk (per-OS), not in config.json — fetch it.
+  try {
+    const a = await api("GET", "/api/autostart");
+    $("#set-autostart-boot").checked = !!a.enabled;
+    $("#set-autostart-where").textContent = a.location ? `(${a.location})` : "";
+  } catch (_) {
+    $("#set-autostart-boot").checked = false;
+    $("#set-autostart-where").textContent = "";
+  }
   dlg.showModal();
 });
 
@@ -291,7 +300,15 @@ $("#btn-save-settings").addEventListener("click", async (e) => {
     proxy: { port: Number($("#set-proxy-port").value) || 47824 },
     model_discovery: { cache_ttl_seconds: Number($("#set-cache_ttl").value) || 600 },
   };
-  try { await api("POST", "/api/settings", body); dlg.close(); await refresh(); toast("Settings saved"); }
+  try {
+    await api("POST", "/api/settings", body);
+    // Boot-time autostart toggle goes through its own endpoint because
+    // it's a per-OS persistence side-effect, not config.json content.
+    await api("POST", "/api/autostart", { enabled: $("#set-autostart-boot").checked });
+    dlg.close();
+    await refresh();
+    toast("Settings saved");
+  }
   catch (err) { toast(err.message, "error"); }
 });
 

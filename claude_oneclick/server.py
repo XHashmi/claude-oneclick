@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from claude_oneclick import config as cfg_mod
+from claude_oneclick import autostart, config as cfg_mod
 from claude_oneclick import discover, proxy, system_env
 from claude_oneclick.config import (
     all_presets,
@@ -56,12 +56,36 @@ def _models_cache_get(name: str, ttl: int) -> list[str] | None:
     return models
 
 
+def _allowed_hosts(cfg: dict[str, Any]) -> set[str]:
+    port = int(cfg.get("ui", {}).get("port", 47823))
+    return {
+        f"127.0.0.1:{port}", f"127.0.0.1",
+        f"localhost:{port}", f"localhost",
+        f"[::1]:{port}", f"[::1]",
+    }
+
+
 class _Handler(BaseHTTPRequestHandler):
     server_version = "claude-oneclick-ui/0.1"
 
     def log_message(self, format: str, *args: Any) -> None:
         # Quiet by default; the UI logs to stderr.
         return
+
+    def _host_ok(self) -> bool:
+        """Reject requests whose `Host` header isn't loopback.
+
+        Defense against DNS rebinding: a hostile page resolves
+        ``evil.com`` to ``127.0.0.1`` and then talks to our UI as if it
+        were same-origin. Without this check the page could read every
+        saved API key via ``/api/state`` (well, redacted) or
+        ``/api/export`` (full plaintext). Cookies are SameSite=Strict,
+        but the rebound origin IS technically the same site by then —
+        the only safe defense is to reject foreign Host headers.
+        """
+        cfg = load()
+        host = (self.headers.get("Host") or "").lower().strip()
+        return host in _allowed_hosts(cfg)
 
     # ---------- helpers ----------------------------------------------------
 
@@ -89,6 +113,9 @@ class _Handler(BaseHTTPRequestHandler):
     # ---------- routing ----------------------------------------------------
 
     def do_GET(self) -> None:  # noqa: N802
+        if not self._host_ok():
+            self._send_json(403, {"error": "host_not_allowed"})
+            return
         path, _, qs = self.path.partition("?")
         params = urllib.parse.parse_qs(qs)
         if path == "/" or path == "/index.html":
@@ -107,11 +134,26 @@ class _Handler(BaseHTTPRequestHandler):
             self._api_log(int(params.get("lines", ["200"])[0]))
             return
         if path == "/api/export":
+            # Export contains API keys. Require CSRF so a third-party site
+            # can't steal them via a same-origin request smuggled in by
+            # DNS rebinding.
+            if not self._check_csrf():
+                self._send_json(403, {"error": "csrf"})
+                return
             self._api_export()
+            return
+        if path == "/api/autostart":
+            self._send_json(200, {
+                "enabled": autostart.is_enabled(),
+                "location": autostart.describe(),
+            })
             return
         self._send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
+        if not self._host_ok():
+            self._send_json(403, {"error": "host_not_allowed"})
+            return
         if not self._check_csrf():
             self._send_json(403, {"error": "csrf"})
             return
@@ -142,9 +184,16 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/import":
             self._api_import(body)
             return
+        if path == "/api/autostart":
+            ok = autostart.enable() if body.get("enabled") else autostart.disable()
+            self._send_json(200, {"ok": ok, "enabled": autostart.is_enabled()})
+            return
         self._send_json(404, {"error": "not found"})
 
     def do_DELETE(self) -> None:  # noqa: N802
+        if not self._host_ok():
+            self._send_json(403, {"error": "host_not_allowed"})
+            return
         if not self._check_csrf():
             self._send_json(403, {"error": "csrf"})
             return
