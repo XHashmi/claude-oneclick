@@ -26,7 +26,30 @@ through DeepSeek V4 Pro (or any other provider). About 5 minutes.
 
 ## 1. Install
 
-### Linux / macOS
+### Option A — Zero-terminal install (double-click)
+
+If you'd rather not type any commands, download the repo as a ZIP from
+GitHub (**Code → Download ZIP** on the repo page), unzip it, and
+double-click:
+
+- **macOS:** `install.command`
+- **Windows:** `install.bat`
+- **Linux:** `install-linux.desktop` (right-click → *Allow Launching*
+  on first use)
+
+A terminal pops up briefly to run the install. The web UI opens
+automatically when it's done. Press any key to close the window.
+
+If Python isn't already installed, the installer opens the python.org
+download page for you. On Windows, the Microsoft Store's "Python 3.12"
+listing is the easiest path — one click and it picks the right
+architecture (x64 or ARM64) automatically.
+
+### Option B — One-line terminal install
+
+If you're already in a terminal:
+
+#### Linux / macOS
 
 ```sh
 git clone https://github.com/xhashmi/claude-oneclick.git ~/.claude-oneclick
@@ -47,7 +70,7 @@ The installer:
    `~/Applications/claude-oneclick.command` on macOS).
 5. Opens the web UI at http://127.0.0.1:47823 .
 
-### Windows (x86, x64, ARM64)
+#### Windows (x86, x64, ARM64)
 
 In PowerShell (no admin needed):
 

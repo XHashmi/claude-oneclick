@@ -56,6 +56,27 @@ back to talking to api.anthropic.com.
 
 ## Install
 
+### Zero-terminal install (double-click)
+
+Don't want to type any commands? Download the repo as a ZIP from
+GitHub (the green **Code → Download ZIP** button), unzip it, and:
+
+| OS | What to double-click |
+|---|---|
+| **macOS** | `install.command` |
+| **Windows** (x86 / x64 / ARM64) | `install.bat` |
+| **Linux** (GNOME / KDE / Cinnamon / Xfce) | `install-linux.desktop` |
+
+A terminal window pops up automatically, runs the install, and the web
+UI opens in your browser. Press a key to close it when it's done.
+
+> **Prerequisite:** Python 3.9+ must already be installed. If it isn't,
+> the installer detects that and opens the python.org download page for
+> you. On Windows, the Microsoft Store also has a one-click "Python
+> 3.12" listing that picks the right arch (x64 or ARM64) automatically.
+> A future release will bundle Python via PyInstaller so even that step
+> isn't needed.
+
 ### One line
 
 #### Linux / macOS
