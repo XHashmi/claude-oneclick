@@ -253,23 +253,56 @@ code { background: var(--bg-3); padding: 1px 5px; border-radius: 4px; font-size:
 .settings-secret { background: rgba(248, 113, 113, .04); padding: 6px 10px; border-radius: 6px; border: 1px dashed var(--warn); }
 .settings-version span { cursor: pointer; user-select: none; }
 
-/* Usage footer that lives under the layout */
-.usage-footer {
-  position: fixed; bottom: 0; left: 0; right: 0;
-  background: var(--bg-2); border-top: 1px solid var(--border);
-  padding: 6px 16px; display: flex; align-items: center; gap: 12px;
-  font-size: 12px; z-index: 30;
+/* Small floating "chat-window" style usage card pinned to bottom-right
+ * so it doesn't cover the main detail panel like the old full-width
+ * footer did. Collapsible to a minimal pill via the — button. */
+.usage-card {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 260px;
+  max-width: calc(100vw - 32px);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  z-index: 30;
+  overflow: hidden;
+  transition: width .18s ease, height .18s ease;
 }
-.usage-footer button { font-size: 14px; }
+.usage-card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+.usage-card-title {
+  font-size: 11px; letter-spacing: .4px;
+  text-transform: uppercase; color: var(--muted);
+}
+.usage-card-actions { display: flex; gap: 4px; }
+.usage-card-actions .link { font-size: 13px; padding: 0 4px; }
+.usage-card-body {
+  padding: 8px 10px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.usage-card.collapsed .usage-card-body { display: none; }
+.usage-card.collapsed { width: auto; }
+.usage-card.collapsed .usage-card-title { font-size: 12px; text-transform: none; color: var(--fg); }
+@media (max-width: 720px) {
+  .usage-card { width: 220px; right: 8px; bottom: 8px; }
+}
 /* When any dialog is open, hide every floating/pinned overlay so the
  * dialog has the viewport to itself. Driven by a `coc-dialog-open`
  * class added to <body> in app.js (works on every browser, unlike the
  * :has() selector which we keep as a progressive enhancement). */
-body.coc-dialog-open .usage-footer,
+body.coc-dialog-open .usage-card,
 body.coc-dialog-open .wstrip-popover,
 body.coc-dialog-open .banner,
 body.coc-dialog-open .toast.show,
-body:has(dialog[open]) .usage-footer,
+body:has(dialog[open]) .usage-card,
 body:has(dialog[open]) .wstrip-popover,
 body:has(dialog[open]) .banner { display: none !important; }
 #test-result.ok { color: var(--accent-2); }

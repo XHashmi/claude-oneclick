@@ -676,6 +676,20 @@ async function refreshUsage() {
 }
 $("#usage-refresh").addEventListener("click", refreshUsage);
 setInterval(refreshUsage, 30000);
+// Collapsible usage card — remembers state in localStorage.
+const usageCard = $("#usage-footer");
+const usageCollapseBtn = $("#usage-collapse");
+function applyUsageCollapsed(collapsed) {
+  usageCard.classList.toggle("collapsed", collapsed);
+  usageCollapseBtn.textContent = collapsed ? "+" : "—";
+  usageCollapseBtn.title = collapsed ? "Expand" : "Minimize";
+}
+applyUsageCollapsed(localStorage.getItem("coc.usage.collapsed") === "1");
+usageCollapseBtn.addEventListener("click", () => {
+  const next = !usageCard.classList.contains("collapsed");
+  localStorage.setItem("coc.usage.collapsed", next ? "1" : "0");
+  applyUsageCollapsed(next);
+});
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") $("#wstrip-popover").classList.add("hidden");
 });

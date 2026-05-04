@@ -511,10 +511,18 @@
   </form>
 </dialog>
 
-<footer class="usage-footer" id="usage-footer">
-  <span class="muted small" id="usage-summary">No usage today.</span>
-  <button class="link" id="usage-refresh" title="Refresh">↻</button>
-</footer>
+<aside class="usage-card" id="usage-footer" aria-label="Usage today">
+  <header class="usage-card-head">
+    <span class="usage-card-title">Usage today</span>
+    <div class="usage-card-actions">
+      <button class="link" id="usage-refresh" title="Refresh">↻</button>
+      <button class="link" id="usage-collapse" title="Minimize" aria-label="Minimize">—</button>
+    </div>
+  </header>
+  <div class="usage-card-body">
+    <span class="muted small" id="usage-summary">No usage today.</span>
+  </div>
+</aside>
 
 <div id="toast" class="toast"></div>
 
