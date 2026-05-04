@@ -45,9 +45,22 @@ if ($Uninstall) {
     exit 0
 }
 
-Write-Host "==> Installing claude-oneclick (pip --user -e)" -ForegroundColor Cyan
-& $Python -m pip install --user --upgrade pip > $null
-& $Python -m pip install --user -e $RepoRoot
+Write-Host "==> Installing claude-oneclick" -ForegroundColor Cyan
+# Prefer pipx > uv > plain pip --user. pipx avoids the
+# %APPDATA%\Python\PythonXYZ\Scripts not-on-PATH problem entirely.
+$Pipx = Get-Command pipx -ErrorAction SilentlyContinue
+$Uv   = Get-Command uv   -ErrorAction SilentlyContinue
+if ($Pipx) {
+    Write-Host "    using pipx"
+    & $Pipx.Source install --force $RepoRoot | Out-Null
+} elseif ($Uv) {
+    Write-Host "    using uv tool install"
+    & $Uv.Source tool install --force $RepoRoot | Out-Null
+} else {
+    Write-Host "    using pip --user --editable"
+    & $Python -m pip install --user --upgrade pip > $null
+    & $Python -m pip install --user -e $RepoRoot
+}
 
 Write-Host "==> Wiring system env + VSCode + launcher" -ForegroundColor Cyan
 & $Python -m claude_oneclick _post_install

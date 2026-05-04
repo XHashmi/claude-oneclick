@@ -66,9 +66,21 @@ fi
 
 # ---- install path ----------------------------------------------------------
 
-echo "==> Installing claude-oneclick (pip --user -e)"
-"$PY" -m pip install --user --upgrade pip >/dev/null
-"$PY" -m pip install --user -e "$REPO_ROOT"
+echo "==> Installing claude-oneclick"
+# Prefer pipx > uv > plain pip --user, in that order. pipx puts the
+# entrypoint script in ~/.local/bin (auto-on-PATH after `pipx ensurepath`),
+# avoiding the user-scripts-dir PATH headache that plagues bare pip --user.
+if command -v pipx >/dev/null 2>&1; then
+  echo "    using pipx"
+  pipx install --force "$REPO_ROOT" >/dev/null
+elif command -v uv >/dev/null 2>&1; then
+  echo "    using uv tool install"
+  uv tool install --force "$REPO_ROOT" >/dev/null
+else
+  echo "    using pip --user --editable"
+  "$PY" -m pip install --user --upgrade pip >/dev/null
+  "$PY" -m pip install --user -e "$REPO_ROOT"
+fi
 
 echo "==> Wiring shell rc + VSCode + launcher"
 "$PY" -m claude_oneclick _post_install

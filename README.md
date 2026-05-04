@@ -132,6 +132,35 @@ pipx install /path/to/claude-oneclick
 claude-oneclick _post_install
 ```
 
+### Via package manager (any of these)
+
+The repo `pyproject.toml` works with every standard Python tool, so any
+of these install the CLI from GitHub directly — no PyPI publishing
+required:
+
+```sh
+# pip (user install)
+pip install --user "git+https://github.com/xhashmi/claude-oneclick.git"
+
+# pipx (recommended for CLI tools — isolated venv, auto-on-PATH)
+pipx install "git+https://github.com/xhashmi/claude-oneclick.git"
+
+# uv tool (Astral's fast Python toolchain)
+uv tool install "git+https://github.com/xhashmi/claude-oneclick.git"
+```
+
+After any of those, finish the wiring with:
+
+```sh
+claude-oneclick _post_install   # shell rc + VSCode settings + desktop launcher
+claude-oneclick ui              # open the web UI
+```
+
+**Roadmap** — these need a publishing step before they work, and aren't
+done yet: PyPI (so plain `pip install claude-oneclick` resolves),
+Homebrew tap, winget manifest, scoop bucket, AUR, nixpkgs, conda-forge.
+Open an issue if you want one of those prioritized.
+
 ## Usage
 
 ### From the UI (recommended)
