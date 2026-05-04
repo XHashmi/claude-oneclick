@@ -67,7 +67,8 @@ def check_provider(preset: dict[str, Any]) -> dict[str, Any]:
         # whether the host resolves and a TCP connect succeeds.
         return _tcp_probe(base)
     # OpenAI-format → real /v1/models probe with the saved key.
-    api_key = preset.get("api_key") or ""
+    from claude_oneclick.config import _resolve_api_key
+    api_key = _resolve_api_key(preset)
     is_local = "localhost" in base or "127.0.0.1" in base
     if not api_key and not is_local:
         return {"status": "warn", "detail": "no API key saved for this preset"}

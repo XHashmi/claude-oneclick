@@ -268,25 +268,41 @@ def _use_keychain(cfg: dict[str, Any] | None = None) -> bool:
 
 
 def _resolve_api_key(preset: dict[str, Any], cfg: dict[str, Any] | None = None) -> str:
-    """Returns the effective key for a preset, transparently falling back to
-    the OS keychain (looked up by group) when ``use_keychain`` is on AND the
-    config field is empty.
+    """Returns the effective key for a preset, with three fallbacks:
+
+    1. The preset's own ``api_key`` field.
+    2. The OS keychain (looked up by group) when ``use_keychain`` is on.
+    3. Any sibling preset in the same group that *does* have a key —
+       providers issue one API key per account that works across all
+       their models, so if a sibling has it the user almost certainly
+       wants this preset to share it. Skipped for ``Custom``/``Default``
+       groups where each entry is its own account.
+
+    Without #3 a preset that was added *after* the user pasted their
+    key would silently report "no API key" until they re-pasted; with
+    it, group-key sharing is fully transparent.
     """
     cfg = cfg or load()
     own = preset.get("api_key") or ""
     if own:
         return own
-    if not _use_keychain(cfg):
-        return ""
     group = preset.get("group") or ""
-    if not group:
-        return ""
-    try:
-        from claude_oneclick import secrets_store
-        if secrets_store.available():
-            return secrets_store.get(group) or ""
-    except Exception:
-        return ""
+    if _use_keychain(cfg) and group:
+        try:
+            from claude_oneclick import secrets_store
+            if secrets_store.available():
+                k = secrets_store.get(group)
+                if k:
+                    return k
+        except Exception:
+            pass
+    if group and group not in ("Custom", "Default"):
+        my_name = preset.get("name")
+        for sibling in all_presets(cfg):
+            if sibling.get("group") == group and sibling.get("name") != my_name:
+                sib_key = sibling.get("api_key") or ""
+                if sib_key:
+                    return sib_key
     return ""
 
 

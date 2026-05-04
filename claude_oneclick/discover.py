@@ -110,9 +110,13 @@ def list_models(
 
 
 def list_models_for_preset(preset: dict[str, Any], *, timeout: float = 10.0) -> list[str]:
-    """Convenience wrapper that pulls base_url + api_key out of a preset dict."""
+    """Convenience wrapper that pulls base_url + api_key out of a preset dict.
+    Uses _resolve_api_key so the call inherits the group/keychain/sibling
+    fallbacks — refreshing the model list on a freshly-added preset works
+    even if the user only ever pasted a key into a sibling preset."""
+    from claude_oneclick.config import _resolve_api_key
     return list_models(
         preset.get("base_url", ""),
-        preset.get("api_key") or None,
+        _resolve_api_key(preset) or None,
         timeout=timeout,
     )

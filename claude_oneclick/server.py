@@ -460,11 +460,67 @@ class _Handler(BaseHTTPRequestHandler):
                 msg = (parsed.get("error") or {}).get("message") or parsed.get("message") or err_body
             except Exception:
                 msg = err_body
-            self._send_json(200, {"ok": False, "error": f"HTTP {e.code}: {str(msg)[:400]}"})
+            # 404 from the upstream usually means the base URL is wrong
+            # (missing /v1, missing /api, etc.). Probe the obvious
+            # variants and tell the user exactly which one works.
+            hint = ""
+            if e.code == 404:
+                fix = self._suggest_base_url(preset)
+                if fix:
+                    hint = f"\n\nHint: GET {fix}/v1/models worked — change Base URL to {fix} and Save."
+            self._send_json(200, {"ok": False, "error": f"HTTP {e.code}: {str(msg)[:400]}{hint}"})
         except urllib.error.URLError as e:
             self._send_json(200, {"ok": False, "error": f"can't reach proxy at {proxy_host}:{proxy_port} — {e.reason}"})
         except Exception as e:
             self._send_json(200, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+
+    def _suggest_base_url(self, preset: dict) -> str | None:
+        """Probe likely Base URL variants for the preset's host.
+
+        Most "404 from upstream" failures are a missing/extra ``/v1`` or
+        ``/api`` segment. We try the obvious siblings of the saved URL
+        and return the first one whose ``/v1/models`` answers 2xx (or
+        even 401, which proves the path is right but the key is wrong).
+        Returns the *base* (without ``/v1/models``) so the user can
+        paste it back into the form.
+        """
+        from claude_oneclick.config import _resolve_api_key
+        base = (preset.get("base_url") or "").rstrip("/")
+        if not base:
+            return None
+        api_key = _resolve_api_key(preset)
+        # Reduce to the bare host first.
+        import urllib.parse
+        u = urllib.parse.urlparse(base)
+        if not u.scheme or not u.netloc:
+            return None
+        host = f"{u.scheme}://{u.netloc}"
+        path = (u.path or "").rstrip("/")
+        # Build a deduplicated, ordered list of candidates.
+        candidates: list[str] = []
+        for c in (host, host + "/v1", host + "/api", host + "/api/v1", base):
+            if c not in candidates:
+                candidates.append(c)
+        # Move the saved base to last so we don't re-try the failing one first.
+        if base in candidates:
+            candidates.remove(base)
+            candidates.append(base)
+        for cand in candidates:
+            url = cand + "/v1/models"
+            try:
+                req = urllib.request.Request(url, method="GET")
+                if api_key:
+                    req.add_header("Authorization", f"Bearer {api_key}")
+                with urllib.request.urlopen(req, timeout=4) as r:
+                    if 200 <= r.status < 300:
+                        return cand
+            except urllib.error.HTTPError as e:
+                # 401/403 still proves the path resolved.
+                if e.code in (401, 403):
+                    return cand
+            except Exception:
+                continue
+        return None
 
     def _api_provider_models(self, group: str) -> None:
         """Live catalog for a whole provider group (e.g. "NVIDIA NIMs").

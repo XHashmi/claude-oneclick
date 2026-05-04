@@ -38,7 +38,8 @@ def env_for_preset(
 ) -> dict[str, str]:
     """Compute the env-var map for a given (active, enabled) preset."""
     fmt = (preset.get("format") or "openai").lower()
-    api_key = preset.get("api_key") or ""
+    from claude_oneclick.config import _resolve_api_key
+    api_key = _resolve_api_key(preset)
     model = preset.get("model") or ""
     small = preset.get("small_fast_model") or model
 
