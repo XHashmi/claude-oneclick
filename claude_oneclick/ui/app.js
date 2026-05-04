@@ -815,7 +815,61 @@ $("#btn-settings").addEventListener("click", async () => {
     $("#set-autostart-where").textContent = "";
   }
   populateVersionInfo();
+  populateDesktopStatus();
   dlg.showModal();
+});
+
+async function populateDesktopStatus() {
+  try {
+    const s = await api("GET", "/api/desktop/status");
+    $("#set-desktop-dev").checked = !!s.enabled;
+    const where = s.config_path ? `config: ${s.config_path}` : `(${s.detail || "no config file detected"})`;
+    $("#set-desktop-status").textContent = where;
+  } catch (err) {
+    $("#set-desktop-status").textContent = err.message;
+  }
+}
+
+$("#set-desktop-dev").addEventListener("change", async (e) => {
+  const enabled = e.target.checked;
+  if (enabled) {
+    const ok = await confirmDialog(
+      "Route Claude Desktop's chat UI to OneClick?",
+      "This writes Claude Desktop's developer config (third-party inference) to point at the local proxy. Anthropic's chat features that depend on the official endpoint will be disabled. Reverting restores your previous config exactly.",
+      "Enable"
+    );
+    if (!ok) { e.target.checked = false; return; }
+  }
+  try {
+    const r = await api("POST", "/api/desktop/toggle", { enabled });
+    if (r.ok) {
+      toast(enabled ? "Claude Desktop pointed at OneClick" : "Claude Desktop reverted");
+      populateDesktopStatus();
+    } else {
+      toast(r.error || "failed", "error");
+      e.target.checked = !enabled;
+    }
+  } catch (err) {
+    toast(err.message, "error");
+    e.target.checked = !enabled;
+  }
+});
+
+// ---- Secret developer menu (5 fast clicks on the version label) ----------
+
+let _secretClicks = 0;
+let _secretTimer = null;
+$("#set-version-info").addEventListener("click", () => {
+  _secretClicks++;
+  if (_secretTimer) clearTimeout(_secretTimer);
+  _secretTimer = setTimeout(() => { _secretClicks = 0; }, 1200);
+  if (_secretClicks >= 5) {
+    _secretClicks = 0;
+    $("#settings-secret").classList.toggle("hidden");
+    toast($("#settings-secret").classList.contains("hidden")
+      ? "Developer menu hidden"
+      : "⚠ Developer menu unlocked");
+  }
 });
 
 $("#btn-save-settings").addEventListener("click", async (e) => {

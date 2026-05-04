@@ -460,6 +460,13 @@
     <div class="row check"><label><input type="checkbox" id="set-skip_login" /> Skip Claude Code login (sets <code>CLAUDE_CODE_SKIP_LOGIN=1</code> for the CLI &amp; VSCode extension)</label></div>
     <div class="row check"><label><input type="checkbox" id="set-autostart-boot" /> Start Claude OneClick when the system starts <span class="muted small" id="set-autostart-where"></span></label></div>
     <hr class="settings-sep" />
+    <h3 class="settings-section">Surfaces</h3>
+    <p class="muted small">Per-surface routing. The shell rc + system env always apply globally; these are extras.</p>
+    <div class="row check"><label><input type="checkbox" id="set-desktop-dev" /> Route Claude Desktop chat UI to OneClick (uses Claude Desktop's "Configure Third-Party Inference" config — <span class="warn-text">disables some chat features</span>)</label></div>
+    <p class="muted small" id="set-desktop-status">—</p>
+    <p class="muted small">For per-surface env without changing global state, use the CLI: <code>claude-oneclick run cli</code>, <code>claude-oneclick run code</code>, <code>claude-oneclick run desktop</code>.</p>
+
+    <hr class="settings-sep" />
     <h3 class="settings-section">Updates</h3>
     <div class="row settings-version">
       <label>Installed</label>
@@ -472,6 +479,22 @@
       <button class="btn small primary hidden" id="set-update-apply" type="button">Update now</button>
     </div>
     <p class="muted small">Updates compare your install's commit SHA to <code>github.com/xhashmi/claude-oneclick</code>. Works for both <code>git clone</code> installs (uses <code>git pull</code>) and ZIP installs (downloads the latest branch ZIP and extracts in place).</p>
+
+    <!-- Hidden developer menu: 5 quick clicks on this row to unlock. -->
+    <div class="settings-secret hidden" id="settings-secret">
+      <hr class="settings-sep" />
+      <h3 class="settings-section warn-text">⚠ Developer (advanced)</h3>
+      <p class="muted small">These options bypass safety rails. Don't enable any of them unless you understand the implications.</p>
+      <div class="row check"><label><input type="checkbox" id="set-dev-systemproxy" disabled /> Force Claude Desktop chat UI through a system-wide MITM proxy <span class="muted">(not auto-applied — see notes)</span></label></div>
+      <p class="muted small">
+        Implementation requires installing a custom root CA, configuring a system proxy (Windows: Internet Options → Connections, macOS: Network → Advanced → Proxies, Linux: <code>http_proxy</code>+<code>https_proxy</code>), and running mitmproxy/Caddy with a TLS-interception rule for <code>api.anthropic.com</code>. <b>Compromises browser TLS for every site</b> — only do this on a sandbox machine.
+      </p>
+      <div class="row check"><label><input type="checkbox" id="set-dev-dnsspoof" disabled /> DNS-redirect <code>api.anthropic.com</code> to 127.0.0.1 via the hosts file <span class="muted">(not auto-applied — see notes)</span></label></div>
+      <p class="muted small">
+        Same TLS-cert problem as above. Breaks Anthropic's auth. Listed for completeness; not recommended.
+      </p>
+      <p class="muted small">Want one of these auto-applied? Open an issue and I'll add it as opt-in only with the cert-install dance scripted out.</p>
+    </div>
     <div class="row"><label>Model discovery cache TTL (s)</label><input id="set-cache_ttl" type="number" /></div>
     <div class="actions">
       <button class="btn" value="cancel">Cancel</button>

@@ -9,6 +9,7 @@ import time
 from typing import Any
 
 from claude_oneclick import __version__, autostart, launcher, proxy, server, system_env, updater
+from claude_oneclick import desktop as desktop_mod
 from claude_oneclick.config import (
     all_presets,
     delete_preset,
@@ -282,6 +283,108 @@ def _cmd_boot(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_desktop(args: argparse.Namespace) -> int:
+    if args.action == "status":
+        s = desktop_mod.status()
+        for k in ("platform", "user_data_dir", "config_path", "endpoint_key", "enabled", "detail"):
+            print(f"{k:<14} {s.get(k)}")
+        return 0
+    cfg = load()
+    active = cfg.get("active") or "anthropic"
+    proxy_cfg = cfg.get("proxy", {})
+    base = f"http://{proxy_cfg.get('host', '127.0.0.1')}:{int(proxy_cfg.get('port', 47824))}"
+    if args.action == "enable":
+        result = desktop_mod.enable(args.url or base)
+        if result.get("ok"):
+            print(f"Claude Desktop pointed at {result['endpoint']}")
+            print(f"Wrote: {result['config_path']} (key: {result['endpoint_key']})")
+            print("NOTE: Claude Desktop's developer mode disables some chat features.")
+            print("      Run `claude-oneclick desktop disable` to revert.")
+        else:
+            print(f"error: {result.get('error')}", file=sys.stderr)
+            return 1
+        return 0
+    if args.action == "disable":
+        result = desktop_mod.disable()
+        print(result.get("detail") or result.get("error"))
+        return 0 if result.get("ok") else 1
+    print(f"unknown action: {args.action}", file=sys.stderr)
+    return 2
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    """Wrapper: run a target binary with the active preset's env injected.
+
+    Lets the user keep different surfaces on different presets — e.g.
+    DeepSeek for `claude run cli`, Anthropic for the desktop app.
+    """
+    import os
+    cfg = load()
+    env = system_env.compute_env(cfg)
+    if not env and args.surface != "anthropic":
+        # Make sure the proxy is up if we're going to need it.
+        active = cfg.get("active") or "anthropic"
+        preset = get_preset(active, cfg) or {}
+        if (preset.get("format") or "").lower() == "openai" and active != "anthropic":
+            proxy.ensure_running()
+            # Recompute now that the proxy is running.
+            env = system_env.compute_env(cfg)
+    new_env = {**os.environ, **env}
+
+    # Resolve the binary for each known surface.
+    import shutil
+    target: list[str]
+    if args.surface in ("cli", "claude"):
+        bin_ = shutil.which("claude") or "claude"
+        target = [bin_] + (args.cmd or [])
+    elif args.surface in ("vscode", "code"):
+        bin_ = shutil.which("code") or "code"
+        target = [bin_] + (args.cmd or [])
+    elif args.surface == "desktop":
+        # Best-effort path lookup per OS.
+        target = _resolve_claude_desktop_bin()
+        if not target:
+            print("error: couldn't locate the Claude Desktop binary on this OS", file=sys.stderr)
+            return 1
+        target = target + (args.cmd or [])
+    else:
+        print(f"unknown surface: {args.surface}", file=sys.stderr)
+        return 2
+
+    print(f"==> launching {' '.join(target)}")
+    try:
+        os.execvpe(target[0], target, new_env)
+    except FileNotFoundError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _resolve_claude_desktop_bin() -> list[str] | None:
+    import os
+    import shutil
+    from pathlib import Path
+    s = platform.system()
+    if s == "Darwin":
+        for p in ("/Applications/Claude.app/Contents/MacOS/Claude",
+                  str(Path.home() / "Applications/Claude.app/Contents/MacOS/Claude")):
+            if Path(p).exists():
+                return [p]
+        return ["open", "-a", "Claude"]
+    if s == "Windows":
+        appdata = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData/Local")
+        for p in (Path(appdata) / "AnthropicClaude/Claude.exe",
+                  Path(appdata) / "Programs/Claude/Claude.exe"):
+            if p.exists():
+                return [str(p)]
+        return None
+    for cand in ("claude-desktop", "Claude"):
+        p = shutil.which(cand)
+        if p:
+            return [p]
+    return None
+
+
 def _cmd_update(args: argparse.Namespace) -> int:
     if args.action == "check":
         info = updater.check(force=True)
@@ -485,6 +588,16 @@ def _build_parser() -> argparse.ArgumentParser:
     pup = sub.add_parser("update", help="check for / apply updates from GitHub")
     pup.add_argument("action", choices=["check", "apply"], nargs="?", default="check")
     pup.set_defaults(func=_cmd_update)
+
+    pdes = sub.add_parser("desktop", help="enable/disable Claude Desktop's third-party endpoint")
+    pdes.add_argument("action", choices=["enable", "disable", "status"], nargs="?", default="status")
+    pdes.add_argument("--url", help="endpoint URL (defaults to the local proxy)")
+    pdes.set_defaults(func=_cmd_desktop)
+
+    prun = sub.add_parser("run", help="launch a surface (claude/code/desktop) with the active preset env")
+    prun.add_argument("surface", choices=["cli", "claude", "vscode", "code", "desktop"])
+    prun.add_argument("cmd", nargs=argparse.REMAINDER, help="extra args passed to the target")
+    prun.set_defaults(func=_cmd_run)
 
     pb = sub.add_parser("_boot", help=argparse.SUPPRESS)
     pb.set_defaults(func=_cmd_boot)

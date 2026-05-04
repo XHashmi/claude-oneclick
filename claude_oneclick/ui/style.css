@@ -226,6 +226,8 @@ dialog h2 { margin-top: 0; }
 
 code { background: var(--bg-3); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 .warn-text { color: var(--warn); }
+.settings-secret { background: rgba(248, 113, 113, .04); padding: 6px 10px; border-radius: 6px; border: 1px dashed var(--warn); }
+.settings-version span { cursor: pointer; user-select: none; }
 
 /* Panel separator inside the merged Setup tab */
 .panel-sep { border: 0; border-top: 1px solid var(--border); margin: 22px 0 16px; }

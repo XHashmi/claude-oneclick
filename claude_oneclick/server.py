@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from claude_oneclick import autostart, config as cfg_mod
+from claude_oneclick import desktop as desktop_mod
 from claude_oneclick import diagnose as diagnose_mod
 from claude_oneclick import discover, proxy, system_env, updater
 from claude_oneclick.config import (
@@ -159,6 +160,9 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/diagnose":
             self._send_json(200, diagnose_mod.diagnose())
             return
+        if path == "/api/desktop/status":
+            self._send_json(200, desktop_mod.status())
+            return
         self._send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
@@ -201,6 +205,14 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/update/apply":
             result = updater.apply()
+            self._send_json(200 if result.get("ok") else 500, result)
+            return
+        if path == "/api/desktop/toggle":
+            cfg = load()
+            p = cfg.get("proxy", {})
+            base = f"http://{p.get('host', '127.0.0.1')}:{int(p.get('port', 47824))}"
+            url = body.get("url") or base
+            result = desktop_mod.enable(url) if body.get("enabled") else desktop_mod.disable()
             self._send_json(200 if result.get("ok") else 500, result)
             return
         self._send_json(404, {"error": "not found"})
