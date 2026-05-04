@@ -108,7 +108,11 @@ function renderSidebar() {
     head.className = "section-head";
     const browsable = !["Custom", "Default"].includes(section);
     head.innerHTML = browsable
-      ? `<span>${escape(section)}</span><button class="browse-btn" data-group="${escape(section)}" title="Fetch live model list from the provider">↻ Browse</button>`
+      ? `<span>${escape(section)}</span>
+         <span class="section-tools">
+           <button class="add-custom-btn" data-add-group="${escape(section)}" title="Add a custom model from this provider">+ Custom</button>
+           <button class="browse-btn" data-group="${escape(section)}" title="Fetch live model list from the provider">↻ Browse</button>
+         </span>`
       : `<span>${escape(section)}</span>`;
     ul.appendChild(head);
 
@@ -120,6 +124,9 @@ function renderSidebar() {
         (p.name === state.active ? " active" : "");
       const tags = (p.tags || [])
         .map(t => `<span class="tagchip">${escape(t)}</span>`).join("");
+      const pricing = p.pricing
+        ? `<span class="pricechip ${escape(p.pricing)}">${escape(pricingLabel(p.pricing))}</span>`
+        : "";
       const dot = p.format === "anthropic"
         ? '<span class="key-dot none" title="no key needed"></span>'
         : (p.api_key_set
@@ -129,7 +136,7 @@ function renderSidebar() {
         <div class="card-row1">
           ${dot}
           <span class="preset-name">${escape(p.label || p.name)}</span>
-          <span class="card-tags">${tags}</span>
+          <span class="card-tags">${pricing}${tags}</span>
         </div>
         <div class="card-row2 muted">${escape(p.subtitle || "")}</div>
       `;
@@ -162,17 +169,29 @@ function renderLiveCatalog(group, models) {
     host.innerHTML = `<div class="extras-empty">No additional models from this provider.</div>`;
     return;
   }
-  // Find the first preset in the group to seed base_url + api_key for
-  // any new preset created from a clicked live model.
+  // Group by vendor (the part before the first '/'). Models without a
+  // slash go into a default "—" bucket (e.g. Ollama tags like
+  // 'llama3.1:70b').
+  const byVendor = {};
+  for (const m of models) {
+    const idx = m.indexOf("/");
+    const vendor = idx > 0 ? m.slice(0, idx) : "—";
+    (byVendor[vendor] ||= []).push(m);
+  }
+  const vendors = Object.keys(byVendor).sort();
+
   const seed = state.presets.find(p => p.group === group && p.builtin) || {};
-  const sub = seed.base_url || "";
-  host.innerHTML = `<div class="extras-head">${models.length} more from provider</div>` +
-    models.map(m => `
+  let html = `<div class="extras-head">${models.length} more from provider</div>`;
+  for (const v of vendors) {
+    html += `<div class="extras-vendor">${escape(v)} <span class="muted">·</span> ${byVendor[v].length}</div>`;
+    html += byVendor[v].map(m => `
       <div class="extra-card" data-model="${escape(m)}" data-seed="${escape(seed.name || "")}">
         <span class="key-dot none"></span>
         <span class="preset-name mono">${escape(m)}</span>
       </div>
     `).join("");
+  }
+  host.innerHTML = html;
   for (const card of host.querySelectorAll(".extra-card")) {
     card.onclick = () => useLiveModel(card.dataset.seed, card.dataset.model);
   }
@@ -220,10 +239,19 @@ async function useLiveModel(seedPresetName, model) {
   } catch (err) { toast(err.message, "error"); }
 }
 
-// Click delegation for the dynamic ↻ Browse buttons.
-document.addEventListener("click", (e) => {
-  const t = e.target.closest && e.target.closest(".browse-btn");
-  if (t && t.dataset.group) { e.stopPropagation(); browseProvider(t.dataset.group); }
+// Click delegation for the dynamic ↻ Browse and + Custom buttons.
+document.addEventListener("click", async (e) => {
+  const browse = e.target.closest && e.target.closest(".browse-btn");
+  if (browse && browse.dataset.group) { e.stopPropagation(); browseProvider(browse.dataset.group); return; }
+  const addCustom = e.target.closest && e.target.closest(".add-custom-btn");
+  if (addCustom && addCustom.dataset.addGroup) {
+    e.stopPropagation();
+    const g = addCustom.dataset.addGroup;
+    const seed = state.presets.find(p => p.group === g && p.builtin) || {};
+    const model = prompt(`Enter the upstream model id from ${g} (e.g. "deepseek-ai/deepseek-v4-pro"):`);
+    if (!model) return;
+    await useLiveModel(seed.name || "", model.trim());
+  }
 });
 
 function getSelected() {
@@ -303,6 +331,10 @@ function addAliasRow(k = "", v = "") {
 }
 
 function escape(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+
+function pricingLabel(p) {
+  return ({"free": "free", "free-tier": "free tier", "paid": "paid", "varies": "varies"})[p] || p;
+}
 
 const REASONING_LEVELS = ["low", "medium", "high"];
 function reasoningEffortName(v) { return REASONING_LEVELS[Math.max(0, Math.min(2, Number(v) - 1))] || "medium"; }
@@ -448,8 +480,91 @@ for (const t of $$(".tab")) {
     for (const p of $$(".panel")) p.classList.toggle("active", p.id === "panel-" + t.dataset.tab);
     if (t.dataset.tab === "logs") refreshLog();
     if (t.dataset.tab === "wiring") refreshDiagnose();
+    if (t.dataset.tab === "export") renderExportSnippets();
   });
 }
+
+// --- Persistent wiring strip (always visible below the topbar) -----------
+
+let _stripInterval = null;
+function startStripPolling() {
+  if (_stripInterval) return;
+  _stripInterval = setInterval(() => doStripDiagnose().catch(() => {}), 6000);
+}
+
+async function doStripDiagnose() {
+  try {
+    const r = await api("GET", "/api/diagnose");
+    paintStrip(r);
+    // Also paint the in-tab Wiring panel if it's open.
+    if (document.querySelector("#panel-wiring.active")) paintDiagnose(r);
+  } catch (_) { /* ignore — keep last good state */ }
+}
+
+function paintStrip(r) {
+  const sumEl = $("#wstrip-summary");
+  const overall = r.overall || "off";
+  sumEl.className = "wstrip-summary " + overall;
+  const summary = {
+    ok:    `Routed → ${r.active_label || r.active}`,
+    warn:  `Working with warnings`,
+    error: `Broken — see node`,
+    off:   `OFF`,
+  };
+  sumEl.textContent = summary[overall] || overall;
+
+  setStripNode("wstrip-provider", r.nodes && r.nodes.provider);
+  setStripNode("wstrip-proxy",    r.nodes && r.nodes.proxy);
+  setStripNode("wstrip-claude",   r.nodes && r.nodes.claude);
+  setStripWire("wstrip-wire-pp",  r.wires && r.wires.provider_proxy);
+  setStripWire("wstrip-wire-pc",  r.wires && r.wires.proxy_claude);
+
+  // Stash details so the popover can read them on click.
+  _stripDiag = r;
+}
+let _stripDiag = null;
+
+function setStripNode(id, info) {
+  const el = $("#" + id); if (!el) return;
+  for (const c of _statusClasses) el.classList.remove(c);
+  if (info && info.status) el.classList.add(info.status);
+}
+function setStripWire(id, info) {
+  const el = $("#" + id); if (!el) return;
+  for (const c of _statusClasses) el.classList.remove(c);
+  if (info && info.status) el.classList.add(info.status);
+}
+
+// Click handlers for the strip — open a popover with the detail.
+const _stripKeyToTitle = {
+  provider: "Provider", proxy: "OneClick proxy", claude: "Claude Code",
+  provider_proxy: "Wire: Provider ↔ Proxy", proxy_claude: "Wire: Proxy ↔ Claude Code",
+};
+document.addEventListener("click", (e) => {
+  const node = e.target.closest && e.target.closest("[data-key]");
+  const popover = $("#wstrip-popover");
+  if (!node || !popover) return;
+  if (popover.contains(e.target)) return;
+  // Only intercept clicks on wiring-strip nodes/wires.
+  if (!node.closest("#wiring-strip")) return;
+  const key = node.dataset.key;
+  if (!_stripDiag) return;
+  const info = (_stripDiag.nodes && _stripDiag.nodes[key]) || (_stripDiag.wires && _stripDiag.wires[key]);
+  if (!info) return;
+  $("#wpop-title").textContent = _stripKeyToTitle[key] || key;
+  const det = $("#wpop-detail");
+  det.textContent = info.detail || "—";
+  det.className = "wpop-detail " + (info.status || "off");
+  // Position near the clicked element.
+  const rect = node.getBoundingClientRect();
+  popover.style.top = (rect.bottom + 8) + "px";
+  popover.style.left = Math.max(12, Math.min(rect.left, window.innerWidth - 380)) + "px";
+  popover.classList.remove("hidden");
+});
+$("#wpop-close").addEventListener("click", () => $("#wstrip-popover").classList.add("hidden"));
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") $("#wstrip-popover").classList.add("hidden");
+});
 
 // --- Wiring (self-diagnostic) ---------------------------------------------
 
@@ -517,7 +632,89 @@ function setWire(id, info) {
   if (detailEl) detailEl.textContent = (info && info.detail) || "";
 }
 
-$("#btn-rediagnose").addEventListener("click", doDiagnose);
+$("#btn-rediagnose")?.addEventListener("click", doDiagnose);
+
+// --- "Copy to other tools" panel ------------------------------------------
+
+function renderExportSnippets() {
+  const p = getSelected();
+  if (!p) return;
+  const base = (p.base_url || "").replace(/\/$/, "");
+  const model = p.model || "";
+  const small = p.small_fast_model || model;
+  // The browser doesn't have access to the saved API key (server redacts).
+  // Use a placeholder that the user replaces — it's safer than echoing the
+  // key into the DOM anyway.
+  const KEY = "<your-api-key>";
+  const prov = (p.label || p.name);
+
+  $("#export-roo").textContent = JSON.stringify({
+    "roo-cline.apiProvider": "openai",
+    "roo-cline.openAiBaseUrl": base,
+    "roo-cline.openAiApiKey": KEY,
+    "roo-cline.openAiModelId": model,
+  }, null, 2);
+
+  $("#export-cline").textContent = JSON.stringify({
+    "cline.apiProvider": "openai",
+    "cline.openAiBaseUrl": base,
+    "cline.openAiApiKey": KEY,
+    "cline.openAiModelId": model,
+  }, null, 2);
+
+  $("#export-continue").textContent = JSON.stringify({
+    "title": prov,
+    "provider": "openai",
+    "model": model,
+    "apiKey": KEY,
+    "apiBase": base,
+  }, null, 2);
+
+  $("#export-cursor").textContent =
+    `Custom OpenAI API\n` +
+    `Base URL: ${base}\n` +
+    `API key: ${KEY}\n` +
+    `Model: ${model}\n` +
+    `Verify "Custom" is selected as the model provider.`;
+
+  $("#export-codex").textContent =
+    `# OpenAI Python SDK / Codex CLI / generic OPENAI_*\n` +
+    `export OPENAI_API_KEY="${KEY}"\n` +
+    `export OPENAI_BASE_URL="${base}/v1"\n` +
+    `export OPENAI_MODEL="${model}"`;
+
+  $("#export-aider").textContent =
+    `export OPENAI_API_KEY="${KEY}"\n` +
+    `export OPENAI_API_BASE="${base}/v1"\n` +
+    `aider --model openai/${model}`;
+
+  $("#export-shell").textContent =
+    `# Anthropic-flavored (Claude Code, Claude SDK)\n` +
+    `export ANTHROPIC_BASE_URL="http://127.0.0.1:${state.proxy.port}"\n` +
+    `export ANTHROPIC_AUTH_TOKEN="claude-oneclick"\n` +
+    `export ANTHROPIC_MODEL="${model}"\n` +
+    `export ANTHROPIC_SMALL_FAST_MODEL="${small}"\n\n` +
+    `# OpenAI-flavored (everything else)\n` +
+    `export OPENAI_API_KEY="${KEY}"\n` +
+    `export OPENAI_BASE_URL="${base}/v1"\n` +
+    `export OPENAI_MODEL="${model}"`;
+}
+
+// Copy-to-clipboard buttons.
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest && e.target.closest("[data-copy]");
+  if (!btn) return;
+  const target = $("#" + btn.dataset.copy);
+  if (!target) return;
+  try {
+    await navigator.clipboard.writeText(target.textContent);
+    const original = btn.textContent;
+    btn.textContent = "✓ Copied";
+    setTimeout(() => { btn.textContent = original; }, 1400);
+  } catch (err) {
+    toast("Copy failed: " + err.message, "error");
+  }
+});
 
 // --- settings dialog -------------------------------------------------------
 
@@ -993,6 +1190,9 @@ $("#update-apply").addEventListener("click", async () => {
     else showBanner();
     // Kick off an update check on first load (cached server-side for 1h).
     checkForUpdate(false);
+    // Persistent wiring strip — paint once now, then poll every 6s.
+    doStripDiagnose();
+    startStripPolling();
   } catch (err) { toast(err.message, "error"); }
 })();
 setInterval(() => refresh(false).catch(() => {}), 5000);

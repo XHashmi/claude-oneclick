@@ -24,6 +24,37 @@
   </div>
 </header>
 
+<!-- Persistent wiring strip — always visible, auto-refreshing. -->
+<section class="wiring-strip" id="wiring-strip" title="Click any node for details">
+  <div class="wstrip-node" id="wstrip-provider" data-key="provider">
+    <span class="wstrip-icon">🌐</span>
+    <span class="wstrip-label">Provider</span>
+  </div>
+  <div class="wstrip-wire" id="wstrip-wire-pp" data-key="provider_proxy"></div>
+  <div class="wstrip-node bulb-node" id="wstrip-proxy" data-key="proxy">
+    <svg class="wstrip-bulb" viewBox="0 0 64 80" width="28" height="34" aria-hidden="true">
+      <circle class="bulb-glass" cx="32" cy="32" r="20" fill="none" stroke="currentColor" stroke-width="3"/>
+      <path class="bulb-filament" d="M 22 32 Q 27 26 32 32 Q 37 38 42 32" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+      <rect x="26" y="54" width="12" height="10" fill="currentColor" opacity=".35"/>
+      <rect x="28" y="64" width="8" height="6" fill="currentColor" opacity=".55"/>
+    </svg>
+    <span class="wstrip-label">OneClick</span>
+  </div>
+  <div class="wstrip-wire" id="wstrip-wire-pc" data-key="proxy_claude"></div>
+  <div class="wstrip-node" id="wstrip-claude" data-key="claude">
+    <span class="wstrip-icon">⌨</span>
+    <span class="wstrip-label">Claude Code</span>
+  </div>
+  <div class="wstrip-summary" id="wstrip-summary">checking…</div>
+</section>
+
+<!-- Popover that the strip nodes/wires open on click. -->
+<div class="wstrip-popover hidden" id="wstrip-popover">
+  <div class="wpop-title" id="wpop-title">—</div>
+  <div class="wpop-detail muted" id="wpop-detail">—</div>
+  <button class="link" id="wpop-close" aria-label="close">✕</button>
+</div>
+
 <div id="onboarding" class="onboarding hidden">
   <div class="onboarding-card">
     <div class="step-indicator"><span class="step active">1</span><span class="step">2</span><span class="step">3</span><span class="step">4</span><span class="step">5</span></div>
@@ -109,16 +140,15 @@
 
   <section class="detail">
     <div class="tabs">
-      <button class="tab active" data-tab="general">General</button>
-      <button class="tab" data-tab="models">Models</button>
+      <button class="tab active" data-tab="setup">Setup</button>
       <button class="tab" data-tab="sampling">Sampling</button>
       <button class="tab" data-tab="headers">Headers</button>
       <button class="tab" data-tab="advanced">Advanced</button>
-      <button class="tab" data-tab="wiring">⚡ Wiring</button>
       <button class="tab" data-tab="logs">Logs</button>
+      <button class="tab tab-spacer" data-tab="export">📋 Copy to other tools</button>
     </div>
 
-    <div class="panel active" id="panel-general">
+    <div class="panel active" id="panel-setup">
       <h2 id="preset-title">—</h2>
       <p class="muted" id="preset-notes"></p>
       <div class="hint">
@@ -162,19 +192,15 @@
         <button class="btn" id="btn-save">Save changes</button>
         <button class="btn danger" id="btn-delete">Delete</button>
       </div>
-    </div>
 
-    <div class="panel" id="panel-models">
+      <hr class="panel-sep" />
+      <h3>Models</h3>
       <div class="hint">
-        <b>How to use this tab:</b> click <b>Refresh</b> to pull the live
-        model list from the provider (uses <code>GET /v1/models</code>, or
-        Ollama's <code>/api/tags</code>). For NVIDIA NIMs that's
-        <i>everything</i> they host right now — Llama, Nemotron, DeepSeek
-        V4 Pro/Flash, GLM 4 / 4.5, Phi, Mistral, etc. — pulled
-        directly from <code>build.nvidia.com</code> so you always see the
-        current catalog. Pick the main model and a smaller/faster one
-        for Claude Code's "small fast" slot. The dropdown is also a
-        free-text input — type any model id the provider serves.
+        Click <b>Refresh</b> to pull the live list from the provider
+        (uses <code>GET /v1/models</code>, or Ollama's <code>/api/tags</code>).
+        For NVIDIA NIMs that's everything they host right now — Llama,
+        Nemotron, DeepSeek V4 Pro/Flash, GLM 4 / 4.5, Phi, Mistral, etc.
+        The dropdown is also a free-text input.
       </div>
       <div class="row">
         <label>Model</label>
@@ -188,7 +214,7 @@
       <datalist id="models-list"></datalist>
       <p class="muted" id="models-status">No model list loaded yet — click Refresh.</p>
 
-      <h3>Aliases</h3>
+      <h4>Aliases</h4>
       <p class="muted">Map names users type (e.g. <code>claude-sonnet-4</code>) to upstream model ids.</p>
       <div id="aliases"></div>
       <button class="btn small" id="btn-add-alias">+ Add alias</button>
@@ -268,7 +294,59 @@
       <div class="row"><label>Notes</label><textarea id="f-notes" rows="3"></textarea></div>
     </div>
 
-    <div class="panel" id="panel-wiring">
+    <div class="panel" id="panel-export">
+      <div class="hint">
+        <b>One-config-fits-all.</b> Copy the active preset into any
+        other AI coding tool — same provider, same key, same model.
+        Each snippet is generated from your current Setup tab values.
+      </div>
+      <div class="export-grid">
+        <div class="export-card">
+          <h4>Roo Code (VSCode)</h4>
+          <p class="muted small">Add to VSCode <code>settings.json</code>.</p>
+          <pre id="export-roo" class="mono"></pre>
+          <button class="btn small" data-copy="export-roo">Copy</button>
+        </div>
+        <div class="export-card">
+          <h4>Cline (VSCode)</h4>
+          <p class="muted small">Add to VSCode <code>settings.json</code>.</p>
+          <pre id="export-cline" class="mono"></pre>
+          <button class="btn small" data-copy="export-cline">Copy</button>
+        </div>
+        <div class="export-card">
+          <h4>Continue.dev</h4>
+          <p class="muted small">Drop into <code>~/.continue/config.json</code> under <code>models</code>.</p>
+          <pre id="export-continue" class="mono"></pre>
+          <button class="btn small" data-copy="export-continue">Copy</button>
+        </div>
+        <div class="export-card">
+          <h4>Cursor</h4>
+          <p class="muted small">Cursor → Settings → Models → "Add custom OpenAI-compatible API".</p>
+          <pre id="export-cursor" class="mono"></pre>
+          <button class="btn small" data-copy="export-cursor">Copy</button>
+        </div>
+        <div class="export-card">
+          <h4>Codex / OpenAI CLI</h4>
+          <p class="muted small">Shell env vars (works for the OpenAI Python SDK and most other OpenAI-format tools).</p>
+          <pre id="export-codex" class="mono"></pre>
+          <button class="btn small" data-copy="export-codex">Copy</button>
+        </div>
+        <div class="export-card">
+          <h4>Aider</h4>
+          <p class="muted small">Shell env vars + a <code>--model</code> flag.</p>
+          <pre id="export-aider" class="mono"></pre>
+          <button class="btn small" data-copy="export-aider">Copy</button>
+        </div>
+        <div class="export-card">
+          <h4>Generic shell env</h4>
+          <p class="muted small">For any tool that reads <code>OPENAI_*</code> or <code>ANTHROPIC_*</code> env.</p>
+          <pre id="export-shell" class="mono"></pre>
+          <button class="btn small" data-copy="export-shell">Copy</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel hidden" id="panel-wiring-removed">
       <div class="hint">
         <b>Self-test for the whole pipeline.</b> Three nodes
         (Provider → OneClick proxy → Claude Code) connected by two
