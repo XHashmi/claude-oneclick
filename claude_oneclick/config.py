@@ -145,6 +145,23 @@ def _migrate(cfg: dict[str, Any]) -> dict[str, Any]:
         cfg.setdefault("model_discovery", {"cache_ttl_seconds": 600})
         cfg.setdefault("autostart_proxy", True)
         cfg["version"] = 2
+    if cfg.get("version", 2) < 3:
+        # Earlier versions defaulted stream_reasoning to "thinking_block"
+        # which emits Anthropic-shape thinking blocks. Anthropic clients
+        # may stall waiting for a cryptographic signature_delta we
+        # can't generate (third-party providers can't sign with
+        # Anthropic's keys). Reset every saved preset to the safer
+        # "text_prefix" default so users don't have to manually toggle
+        # each one. Anyone who explicitly wants thinking blocks can
+        # flip the dropdown back; anyone who never touched it gets the
+        # working default automatically.
+        for ovr in (cfg.get("overrides") or {}).values():
+            if ovr.get("stream_reasoning") == "thinking_block":
+                ovr["stream_reasoning"] = "text_prefix"
+        for up in cfg.get("user_presets") or []:
+            if up.get("stream_reasoning") == "thinking_block":
+                up["stream_reasoning"] = "text_prefix"
+        cfg["version"] = 3
     return cfg
 
 
