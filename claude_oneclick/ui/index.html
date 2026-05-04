@@ -190,8 +190,10 @@
       <div class="actions">
         <button class="btn primary" id="btn-use">Use this preset</button>
         <button class="btn" id="btn-save">Save changes</button>
+        <button class="btn" id="btn-test">⚡ Test</button>
         <button class="btn danger" id="btn-delete">Delete</button>
       </div>
+      <p class="muted small" id="test-result"></p>
 
       <hr class="panel-sep" />
       <h3>Models</h3>
@@ -502,6 +504,11 @@
     </div>
   </form>
 </dialog>
+
+<footer class="usage-footer" id="usage-footer">
+  <span class="muted small" id="usage-summary">No usage today.</span>
+  <button class="link" id="usage-refresh" title="Refresh">↻</button>
+</footer>
 
 <div id="toast" class="toast"></div>
 

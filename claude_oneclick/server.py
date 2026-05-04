@@ -25,6 +25,7 @@ from claude_oneclick import autostart, config as cfg_mod
 from claude_oneclick import desktop as desktop_mod
 from claude_oneclick import diagnose as diagnose_mod
 from claude_oneclick import discover, proxy, system_env, updater
+from claude_oneclick import usage as usage_mod
 from claude_oneclick.config import (
     all_presets,
     delete_preset,
@@ -164,6 +165,13 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/desktop/status":
             self._send_json(200, desktop_mod.status())
             return
+        if path == "/api/usage":
+            try:
+                days = max(1, min(90, int(params.get("days", ["7"])[0])))
+            except ValueError:
+                days = 7
+            self._send_json(200, usage_mod.report(days=days))
+            return
         self._send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
@@ -215,6 +223,9 @@ class _Handler(BaseHTTPRequestHandler):
             url = body.get("url") or base
             result = desktop_mod.enable(url) if body.get("enabled") else desktop_mod.disable()
             self._send_json(200 if result.get("ok") else 500, result)
+            return
+        if path == "/api/test-preset":
+            self._api_test_preset(body.get("name", ""))
             return
         self._send_json(404, {"error": "not found"})
 
@@ -342,6 +353,79 @@ class _Handler(BaseHTTPRequestHandler):
         for n in updated:
             _MODELS_CACHE.pop(n, None)
         self._send_json(200, {"ok": True, "updated": updated})
+
+    def _api_test_preset(self, name: str) -> None:
+        """End-to-end smoke test: send a tiny /v1/messages through our own
+        proxy and assert a non-empty response. Proves the entire pipeline
+        (env wiring, translation, auth, upstream, response shape) works,
+        not just that /v1/models returns something.
+        """
+        import time as _t
+        cfg = load()
+        preset = get_preset(name, cfg)
+        if not preset:
+            self._send_json(404, {"ok": False, "error": "unknown preset"})
+            return
+        if (preset.get("format") or "openai").lower() == "anthropic":
+            self._send_json(400, {"ok": False, "error": "test-preset only works for openai-format presets"})
+            return
+        # Make sure the proxy is up before pinging it.
+        proxy.ensure_running()
+        p = cfg.get("proxy", {})
+        proxy_host = p.get("host", "127.0.0.1")
+        proxy_port = int(p.get("port", 47824))
+        # Need to flip the active preset to the one we want to test, then
+        # restore. Skip if it's already active.
+        prev_active = cfg.get("active")
+        prev_enabled = bool(cfg.get("enabled"))
+        try:
+            if prev_active != name:
+                cfg_mod.set_active(name)
+            cfg_mod.set_enabled(True)
+            payload = json.dumps({
+                "model": preset.get("model") or name,
+                "messages": [{"role": "user", "content": "Reply with just OK."}],
+                "max_tokens": 20,
+                "stream": False,
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                f"http://{proxy_host}:{proxy_port}/v1/messages",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            t0 = _t.time()
+            with urllib.request.urlopen(req, timeout=30) as r:
+                resp = json.loads(r.read().decode("utf-8"))
+            elapsed = round((_t.time() - t0) * 1000, 1)
+            text = ""
+            for b in resp.get("content") or []:
+                if isinstance(b, dict) and b.get("type") == "text":
+                    text += b.get("text") or ""
+            self._send_json(200, {
+                "ok": bool(text.strip()),
+                "latency_ms": elapsed,
+                "response_text": text[:200],
+                "stop_reason": resp.get("stop_reason"),
+                "usage": resp.get("usage"),
+                "preset": name,
+                "model": resp.get("model"),
+            })
+        except urllib.error.HTTPError as e:
+            try:
+                err_body = e.read().decode("utf-8", "replace")
+            except Exception:
+                err_body = str(e)
+            self._send_json(200, {"ok": False, "error": f"HTTP {e.code}: {err_body[:300]}"})
+        except Exception as e:
+            self._send_json(200, {"ok": False, "error": str(e)})
+        finally:
+            # Restore prior active/enabled state.
+            if prev_active != name:
+                try: cfg_mod.set_active(prev_active or "anthropic")
+                except Exception: pass
+            cfg_mod.set_enabled(prev_enabled)
+            system_env.apply_state()
 
     def _api_provider_models(self, group: str) -> None:
         """Live catalog for a whole provider group (e.g. "NVIDIA NIMs").

@@ -438,6 +438,27 @@ $("#btn-save-key").addEventListener("click", async () => {
   } catch (err) { toast(err.message, "error"); }
 });
 
+$("#btn-test").addEventListener("click", async () => {
+  const p = getSelected(); if (!p) return;
+  const out = $("#test-result");
+  out.className = "muted small";
+  out.textContent = "Testing… (sending a tiny request to the upstream)";
+  try {
+    const r = await api("POST", "/api/test-preset", { name: p.name });
+    if (r.ok) {
+      out.className = "small ok";
+      out.innerHTML = `✓ <b>OK</b> in ${r.latency_ms}ms · ${escape(p.label || p.name)} replied: <i>"${escape(r.response_text || "(empty)")}"</i>`;
+    } else {
+      out.className = "small error";
+      out.textContent = "✗ " + (r.error || "test failed");
+    }
+    refreshUsage();
+  } catch (err) {
+    out.className = "small error";
+    out.textContent = "✗ " + err.message;
+  }
+});
+
 $("#btn-delete").addEventListener("click", async () => {
   const p = getSelected(); if (!p || p.builtin) return;
   const ok = await confirmDialog(`Delete "${p.label || p.name}"?`,
@@ -608,6 +629,31 @@ document.addEventListener("click", (e) => {
   popover.classList.remove("hidden");
 });
 $("#wpop-close").addEventListener("click", () => $("#wstrip-popover").classList.add("hidden"));
+
+// ---- Usage footer --------------------------------------------------------
+
+async function refreshUsage() {
+  try {
+    const r = await api("GET", "/api/usage?days=1");
+    const total = r.total || {};
+    const presets = r.presets || {};
+    const reqs = total.requests || 0;
+    if (!reqs) {
+      $("#usage-summary").textContent = "No requests today yet.";
+      return;
+    }
+    const fmt = (n) => n >= 1000 ? (n / 1000).toFixed(1) + "K" : String(n);
+    const byPreset = Object.entries(presets)
+      .sort(([, a], [, b]) => b.requests - a.requests)
+      .map(([name, b]) => `${escape(name)}: ${fmt(b.input)}+${fmt(b.output)} (${b.requests}r)`)
+      .slice(0, 3)
+      .join(" · ");
+    $("#usage-summary").textContent =
+      `Today: ${fmt(total.input)} in / ${fmt(total.output)} out · ${reqs} requests · ${byPreset}`;
+  } catch (_) { /* ignore */ }
+}
+$("#usage-refresh").addEventListener("click", refreshUsage);
+setInterval(refreshUsage, 30000);
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") $("#wstrip-popover").classList.add("hidden");
 });
@@ -1293,6 +1339,8 @@ $("#update-apply").addEventListener("click", async () => {
     // Persistent wiring strip — paint once now, then poll every 6s.
     doStripDiagnose();
     startStripPolling();
+    // Usage footer — paint once.
+    refreshUsage();
   } catch (err) { toast(err.message, "error"); }
 })();
 setInterval(() => refresh(false).catch(() => {}), 5000);

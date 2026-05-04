@@ -808,6 +808,15 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json(502, {"error": {"message": f"bad upstream JSON: {e}"}})
                 return
             anth = openai_to_anthropic_response(resp_obj, oai_req["model"])
+            # Record usage to the per-preset ledger.
+            try:
+                from claude_oneclick import usage as usage_mod
+                u = anth.get("usage") or {}
+                usage_mod.record(active,
+                                 input_tokens=u.get("input_tokens", 0),
+                                 output_tokens=u.get("output_tokens", 0))
+            except Exception:
+                pass
             self._send_json(200, anth)
 
     def _stream_back(self, up: Any, model: str) -> None:
