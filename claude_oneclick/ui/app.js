@@ -154,11 +154,12 @@ function renderSidebar() {
         : (p.api_key_set
             ? '<span class="key-dot ok" title="API key saved"></span>'
             : '<span class="key-dot warn" title="API key not set"></span>');
+      const toolsBadge = toolsOkBadge(p.tools_ok);
       li.innerHTML = `
         <div class="card-row1">
           ${dot}
           <span class="preset-name">${escape(p.label || p.name)}</span>
-          <span class="card-tags">${pricing}${tags}</span>
+          <span class="card-tags">${toolsBadge}${pricing}${tags}</span>
         </div>
         <div class="card-row2 muted">${escape(p.subtitle || "")}</div>
       `;
@@ -211,11 +212,12 @@ function renderLiveCatalog(group, models) {
       const chip = pricing
         ? `<span class="pricechip ${escape(pricing)}" title="best-guess (provider doesn't expose pricing in /v1/models)">${escape(pricingLabel(pricing))}?</span>`
         : "";
+      const tools = toolsOkBadge(inferToolsOk(m));
       return `
         <div class="extra-card" data-model="${escape(m)}" data-seed="${escape(seed.name || "")}">
           <span class="key-dot none"></span>
           <span class="preset-name mono">${escape(m)}</span>
-          ${chip}
+          ${tools}${chip}
         </div>
       `;
     }).join("");
@@ -300,7 +302,12 @@ function renderDetail() {
   // Visible "saved" badge next to the API-key label.
   const ks = $("#api-key-status");
   if (p.api_key_set) {
-    ks.textContent = "✓ saved"; ks.classList.remove("empty");
+    if (p.api_key_source === "group") {
+      ks.textContent = `✓ shared from ${p.group || "group"}`;
+    } else {
+      ks.textContent = "✓ saved";
+    }
+    ks.classList.remove("empty");
   } else {
     ks.textContent = "• not set yet"; ks.classList.add("empty");
   }
@@ -365,11 +372,58 @@ function pricingLabel(p) {
   return ({"free": "free", "free-tier": "free tier", "paid": "paid", "varies": "varies"})[p] || p;
 }
 
+// Tool-call support badge. Claude Code's agent loop is built on tool use,
+// so picking a model that has no native tool/function calling support
+// almost always leads to "infinite thinking" / empty responses.
+function toolsOkBadge(v) {
+  if (v === true) {
+    return '<span class="tool-badge ok" title="Has native tool/function-calling support — works with Claude Code">🛠</span>';
+  }
+  if (v === false) {
+    return '<span class="tool-badge no" title="No tool-call support — Claude Code can\'t drive this model (will appear stuck on \'thinking\')">⚠ no tools</span>';
+  }
+  return '<span class="tool-badge unknown" title="Tool-call support unknown — try the Test button">?</span>';
+}
+
 // Best-effort pricing inference for live-fetched models. Returns one of
 // "free" | "free-tier" | "paid" | null. Patterns are conservative and
 // based on what each provider publishes as free vs metered. NEVER
 // authoritative — providers change tiers without notice; we mark with a
 // "?" suffix in the UI to make that clear.
+// JS mirror of claude_oneclick/tool_support.py — keep in sync.
+const _TOOLS_GOOD = [
+  "claude", "gpt-4", "gpt-5", "o1", "o3", "o4",
+  "deepseek-v3", "deepseek-v4", "deepseek-chat", "deepseek-r1", "deepseek-reasoner",
+  "llama-3.1", "llama-3.2", "llama-3.3", "llama-4", "llama3.1", "llama3.2", "llama3.3",
+  "qwen2.5", "qwen-2.5", "qwen-3", "qwen3",
+  "mistral-large", "mistral-small", "mistral-medium", "mixtral-8x22b", "mixtral-8x7b",
+  "nemotron-70b", "nemotron-340b", "nemotron-super", "nemotron-ultra",
+  "gemini-1.5", "gemini-2", "gemini-pro",
+  "command-r", "command-a",
+  "grok-2", "grok-3", "grok-4",
+  "glm-4", "glm-4.5", "glm-4.6",
+  "yi-large", "phi-4",
+];
+const _TOOLS_BAD = [
+  "llama-2", "llama2",
+  "llama-3-8b", "llama-3-70b",
+  "code-llama", "codellama",
+  "deepseek-coder-v1", "deepseek-llm",
+  "phi-2", "phi-3-mini", "phi-3-small",
+  "embedding", "embed-",
+  "whisper", "tts", "dall-e", "stable-diffusion",
+  "gemma-2b", "gemma-7b",
+  "vicuna", "alpaca", "wizardlm",
+];
+function inferToolsOk(modelId) {
+  if (!modelId) return null;
+  let m = String(modelId).toLowerCase();
+  if (m.includes("/")) m = m.split("/", 2)[1];
+  for (const pat of _TOOLS_BAD) if (m.includes(pat)) return false;
+  for (const pat of _TOOLS_GOOD) if (m.includes(pat)) return true;
+  return null;
+}
+
 function inferPricing(group, modelId) {
   const id = String(modelId || "").toLowerCase();
   if (group === "Local") return "free";

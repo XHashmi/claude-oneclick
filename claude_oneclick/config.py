@@ -296,14 +296,40 @@ def _resolve_api_key(preset: dict[str, Any], cfg: dict[str, Any] | None = None) 
                     return k
         except Exception:
             pass
+    # Only fall back to siblings that point at the SAME provider host.
+    # E.g. all DeepSeek presets share a host → safe to share the key. The
+    # "Other hosted" group lumps Groq/Together/Fireworks/OpenRouter
+    # together for sidebar tidiness — those have *different* hosts and
+    # must never share keys.
     if group and group not in ("Custom", "Default"):
+        my_host = _url_host(preset.get("base_url") or "")
         my_name = preset.get("name")
-        for sibling in all_presets(cfg):
-            if sibling.get("group") == group and sibling.get("name") != my_name:
+        if my_host:
+            for sibling in all_presets(cfg):
+                if sibling.get("name") == my_name:
+                    continue
+                if sibling.get("group") != group:
+                    continue
+                if _url_host(sibling.get("base_url") or "") != my_host:
+                    continue
                 sib_key = sibling.get("api_key") or ""
                 if sib_key:
                     return sib_key
     return ""
+
+
+def _url_host(url: str) -> str:
+    """Lowercase scheme://host[:port] without path. Empty for blank input."""
+    if not url:
+        return ""
+    try:
+        import urllib.parse
+        u = urllib.parse.urlparse(url)
+        if not u.scheme or not u.netloc:
+            return ""
+        return f"{u.scheme.lower()}://{u.netloc.lower()}"
+    except Exception:
+        return ""
 
 
 def set_api_key_for_group(name: str, api_key: str) -> list[str]:
@@ -354,10 +380,16 @@ def set_api_key_for_group(name: str, api_key: str) -> list[str]:
         except Exception:
             pass  # fall through to plaintext path
 
+    target_host = _url_host(target.get("base_url") or "")
     updated: list[str] = []
     for p in all_presets(cfg):
         if p["name"] != name:
             if not propagate or p.get("group") != group:
+                continue
+            # Only propagate to siblings on the same host — see
+            # _resolve_api_key for the rationale (Groq vs OpenRouter
+            # share a sidebar group but not an account).
+            if target_host and _url_host(p.get("base_url") or "") != target_host:
                 continue
         # Only overwrite if the destination either has no key or has the
         # same one already (so we don't clobber a deliberate override).

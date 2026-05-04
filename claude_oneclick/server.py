@@ -295,12 +295,23 @@ class _Handler(BaseHTTPRequestHandler):
         cfg = load()
         presets = all_presets(cfg)
         # Don't ship raw API keys back to the browser; mark presence only.
+        # Use the *resolved* key (own → keychain → sibling fallback) so
+        # the UI's "saved" badge matches what the proxy will actually
+        # send. Without this, siblings in a group looked unkeyed even
+        # though the request would succeed.
+        from claude_oneclick.config import _resolve_api_key
+        from claude_oneclick.tool_support import supports_tools
         sanitized = []
         for p in presets:
             sp = dict(p)
-            ak = sp.get("api_key") or ""
-            sp["api_key_set"] = bool(ak)
+            resolved = _resolve_api_key(p, cfg)
+            sp["api_key_set"] = bool(resolved)
+            sp["api_key_source"] = (
+                "own" if (p.get("api_key") or "")
+                else ("group" if resolved else "none")
+            )
             sp["api_key"] = ""
+            sp["tools_ok"] = supports_tools(p.get("model"))
             sanitized.append(sp)
         self._send_json(200, {
             "csrf": _CSRF_TOKEN,
@@ -556,11 +567,18 @@ class _Handler(BaseHTTPRequestHandler):
         # so the "extra" list is truly extra.
         already = {p.get("model") for p in all_presets(cfg) if p.get("group") == group}
         extras = [m for m in models if m not in already]
+        from claude_oneclick.tool_support import supports_tools
+        # Wrap each model with a tool-support hint so the UI can flag
+        # the ones that won't drive Claude Code's tool loop.
+        annotated = [{"id": m, "tools_ok": supports_tools(m)} for m in models]
+        annotated_extras = [{"id": m, "tools_ok": supports_tools(m)} for m in extras]
         self._send_json(200, {
             "group": group,
             "base_url": candidate["base_url"],
             "all_models": models,
             "extra_models": extras,
+            "models_annotated": annotated,
+            "extras_annotated": annotated_extras,
             "via_preset": candidate["name"],
         })
 
