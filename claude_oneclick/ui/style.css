@@ -120,6 +120,7 @@ body {
 }
 .extra-card:hover { background: var(--bg-3); }
 .extra-card .preset-name { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.extra-card .pricechip { flex-shrink: 0; margin-left: 6px; }
 #preset-list li.preset-card {
   padding: 8px 14px 8px 11px;
   cursor: pointer; border-left: 3px solid transparent;

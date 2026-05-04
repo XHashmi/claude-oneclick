@@ -129,26 +129,53 @@ BUILTIN_PRESETS: list[dict[str, Any]] = [
         "builtin": True,
     },
     {
-        "name": "nim-deepseek-v4",
-        "label": "DeepSeek V4",
-        "subtitle": "via NVIDIA NIMs (Flash variant — Pro not yet on NIMs)",
+        "name": "nim-deepseek-v4-pro",
+        "label": "DeepSeek V4 Pro",
+        "subtitle": "via NVIDIA NIMs — 1M-context, paid tier",
         "group": "NVIDIA NIMs",
         "tags": ["reasoning"],
         "base_url": "https://integrate.api.nvidia.com",
         "api_key": "",
-        "pricing": "free-tier",
-        # Confirmed live in NVIDIA's catalog. Pro isn't there yet — the
-        # user can switch to it any time via 'Refresh' on the Setup tab
-        # if/when NVIDIA publishes it.
+        "pricing": "paid",
+        "model": "deepseek-ai/deepseek-v4-pro",
+        "small_fast_model": "meta/llama-3.1-8b-instruct",
+        "format": "openai",
+        "notes": "DeepSeek V4 Pro on NVIDIA NIMs — the larger 1M-context "
+                 "reasoning model. NVIDIA bills this on the paid tier.",
+        "reasoning_enabled": True,
+        "builtin": True,
+    },
+    {
+        "name": "nim-deepseek-v4-flash",
+        "label": "DeepSeek V4 Flash",
+        "subtitle": "via NVIDIA NIMs — fast, paid tier",
+        "group": "NVIDIA NIMs",
+        "tags": ["reasoning", "fast"],
+        "base_url": "https://integrate.api.nvidia.com",
+        "api_key": "",
+        "pricing": "paid",
         "model": "deepseek-ai/deepseek-v4-flash",
         "small_fast_model": "meta/llama-3.1-8b-instruct",
         "format": "openai",
-        "notes": "DeepSeek V4 Flash on NVIDIA NIMs. NVIDIA's catalog "
-                 "doesn't currently host the Pro variant — click "
-                 "'Browse live catalog' on the sidebar to pick any other "
-                 "model NVIDIA hosts (Llama, Nemotron, GLM, …).",
+        "notes": "DeepSeek V4 Flash on NVIDIA NIMs — 284B MoE, 1M context, "
+                 "tuned for fast coding/agent loops. Paid tier.",
         "reasoning_enabled": True,
+        "builtin": True,
+    },
+    {
+        "name": "nim-deepseek-v3",
+        "label": "DeepSeek V3",
+        "subtitle": "via NVIDIA NIMs — free tier",
+        "group": "NVIDIA NIMs",
+        "tags": [],
+        "base_url": "https://integrate.api.nvidia.com",
+        "api_key": "",
         "pricing": "free-tier",
+        "model": "deepseek-ai/deepseek-v3",
+        "small_fast_model": "meta/llama-3.1-8b-instruct",
+        "format": "openai",
+        "notes": "DeepSeek V3 on NVIDIA NIMs — free tier with the standard "
+                 "build.nvidia.com credits.",
         "builtin": True,
     },
     {

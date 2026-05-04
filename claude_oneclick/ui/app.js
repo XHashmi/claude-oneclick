@@ -184,12 +184,19 @@ function renderLiveCatalog(group, models) {
   let html = `<div class="extras-head">${models.length} more from provider</div>`;
   for (const v of vendors) {
     html += `<div class="extras-vendor">${escape(v)} <span class="muted">·</span> ${byVendor[v].length}</div>`;
-    html += byVendor[v].map(m => `
-      <div class="extra-card" data-model="${escape(m)}" data-seed="${escape(seed.name || "")}">
-        <span class="key-dot none"></span>
-        <span class="preset-name mono">${escape(m)}</span>
-      </div>
-    `).join("");
+    html += byVendor[v].map(m => {
+      const pricing = inferPricing(group, m);
+      const chip = pricing
+        ? `<span class="pricechip ${escape(pricing)}" title="best-guess (provider doesn't expose pricing in /v1/models)">${escape(pricingLabel(pricing))}?</span>`
+        : "";
+      return `
+        <div class="extra-card" data-model="${escape(m)}" data-seed="${escape(seed.name || "")}">
+          <span class="key-dot none"></span>
+          <span class="preset-name mono">${escape(m)}</span>
+          ${chip}
+        </div>
+      `;
+    }).join("");
   }
   host.innerHTML = html;
   for (const card of host.querySelectorAll(".extra-card")) {
@@ -334,6 +341,37 @@ function escape(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp
 
 function pricingLabel(p) {
   return ({"free": "free", "free-tier": "free tier", "paid": "paid", "varies": "varies"})[p] || p;
+}
+
+// Best-effort pricing inference for live-fetched models. Returns one of
+// "free" | "free-tier" | "paid" | null. Patterns are conservative and
+// based on what each provider publishes as free vs metered. NEVER
+// authoritative — providers change tiers without notice; we mark with a
+// "?" suffix in the UI to make that clear.
+function inferPricing(group, modelId) {
+  const id = String(modelId || "").toLowerCase();
+  if (group === "Local") return "free";
+  if (group === "NVIDIA NIMs") {
+    // Anything claiming "v4" on DeepSeek/GLM/Nemotron-Ultra is paid.
+    if (id.includes("deepseek-v4")) return "paid";
+    if (id.includes("deepseek-r2")) return "paid";
+    if (id.startsWith("zhipuai/glm-4.5") || id.startsWith("zhipuai/glm-4.6")) return "paid";
+    if (id.includes("405b")) return "paid";  // 405B-class models bill metered
+    // Smaller open weights and the long-tail are typically free credits.
+    if (id.startsWith("meta/llama-")) return "free-tier";
+    if (id.startsWith("nvidia/llama-") || id.includes("nemotron")) return "free-tier";
+    if (id.startsWith("deepseek-ai/deepseek-v3") ||
+        id.startsWith("deepseek-ai/deepseek-r1") ||
+        id.startsWith("deepseek-ai/deepseek-coder")) return "free-tier";
+    if (id.startsWith("google/gemma") || id.startsWith("microsoft/phi") ||
+        id.startsWith("mistralai/")) return "free-tier";
+    return null;  // unknown → no badge
+  }
+  if (group === "DeepSeek") {
+    return id.includes("v4") ? "paid" : "paid";  // DeepSeek's own API is all paid
+  }
+  if (group === "Other hosted") return "paid";  // Groq/Together/Fireworks bill all
+  return null;
 }
 
 const REASONING_LEVELS = ["low", "medium", "high"];
