@@ -327,6 +327,7 @@ class _Handler(BaseHTTPRequestHandler):
             "log_level": cfg.get("log_level"),
             "autostart_proxy": cfg.get("autostart_proxy"),
             "skip_vscode_login": cfg.get("skip_vscode_login"),
+            "backend": cfg.get("backend") or "builtin",
             "model_discovery": cfg.get("model_discovery"),
         })
 
@@ -645,7 +646,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _api_settings(self, body: dict[str, Any]) -> None:
         cfg = load()
-        for k in ("log_level", "autostart_proxy", "skip_vscode_login"):
+        for k in ("log_level", "autostart_proxy", "skip_vscode_login", "backend"):
             if k in body:
                 cfg[k] = body[k]
         if "ui" in body and isinstance(body["ui"], dict):

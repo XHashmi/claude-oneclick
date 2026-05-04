@@ -45,6 +45,16 @@ def _default_config() -> dict[str, Any]:
         # dialog. Reading is transparent: get_preset() pulls from the
         # keychain when this flag is set and the per-preset field is empty.
         "use_keychain": False,
+        # Routing backend.
+        #   "builtin"  — our hand-rolled Python proxy (default; no extra deps)
+        #   "ccr"      — claude-code-router via npm (requires Node.js >= 18,
+        #                auto-installs the package on first toggle ON)
+        # When backend == "ccr", the toggle starts CCR and points
+        # Claude Code at CCR's listener instead of our proxy. CCR has
+        # battle-tested SSE handling for Claude Code's various spinner
+        # quirks; users hitting hangs in our builtin proxy can switch
+        # to it from Settings → Advanced.
+        "backend": "builtin",
         # User-defined presets (built-ins live in code, not here).
         "user_presets": [],
         # Per-preset partial overrides, keyed by preset name. Each value is

@@ -1070,6 +1070,7 @@ $("#btn-settings").addEventListener("click", async () => {
     $("#set-autostart").checked = !!state.autostart_proxy;
     $("#set-open_browser").checked = !!state.ui.open_browser_on_launch;
     $("#set-skip_login").checked = !!state.skip_vscode_login;
+    $("#set-backend").value = state.backend || "builtin";
     $("#set-cache_ttl").value = (state.model_discovery && state.model_discovery.cache_ttl_seconds) || 600;
   } catch (err) { console.warn("settings populate (state) failed:", err); }
 
@@ -1169,6 +1170,7 @@ $("#btn-save-settings").addEventListener("click", async (e) => {
     log_level: $("#set-log_level").value,
     autostart_proxy: $("#set-autostart").checked,
     skip_vscode_login: $("#set-skip_login").checked,
+    backend: $("#set-backend").value,
     ui: {
       port: Number($("#set-ui-port").value) || 47823,
       theme: $("#set-theme").value,

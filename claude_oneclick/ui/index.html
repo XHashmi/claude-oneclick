@@ -515,6 +515,16 @@
     <div class="row check"><label><input type="checkbox" id="set-skip_login" /> Skip Claude Code login (sets <code>CLAUDE_CODE_SKIP_LOGIN=1</code> for the CLI &amp; VSCode extension)</label></div>
     <div class="row check"><label><input type="checkbox" id="set-autostart-boot" /> Start Claude OneClick when the system starts <span class="muted small" id="set-autostart-where"></span></label></div>
     <hr class="settings-sep" />
+    <h3 class="settings-section">Routing backend</h3>
+    <div class="row">
+      <label>Backend</label>
+      <select id="set-backend">
+        <option value="builtin">Built-in (Python proxy — default, no extra deps)</option>
+        <option value="ccr">claude-code-router (npm; auto-installs on first toggle ON; requires Node.js ≥ 18)</option>
+      </select>
+    </div>
+    <p class="muted small">If responses look correct in the proxy log but Claude Code's spinner still hangs, switching to <b>claude-code-router</b> often fixes it — its SSE handling is battle-tested with Claude Code. The first time you flip the toggle ON after switching, we'll <code>npm install -g @musistudio/claude-code-router</code> for you.</p>
+    <hr class="settings-sep" />
     <h3 class="settings-section">API key storage</h3>
     <div class="row check"><label><input type="checkbox" id="set-use-keychain" /> Store API keys in the OS keychain instead of plaintext config.json</label></div>
     <p class="muted small" id="set-keychain-status">—</p>
