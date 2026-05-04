@@ -131,24 +131,44 @@ def _win_set(group: str, key: str) -> None:
 
 
 def _win_get(group: str) -> str | None:
-    target = f"{SERVICE}/{group}"
-    # cmdkey doesn't print the password back. Use PowerShell with the
-    # CredentialManager API.
+    """Read a credential by P/Invoking advapi32!CredRead via PowerShell.
+
+    The previous implementation relied on the third-party CredentialManager
+    PS module, which isn't installed on stock Windows — meaning any key
+    saved via cmdkey was effectively un-readable on the same machine.
+    This version uses only built-in Windows APIs (advapi32.dll), so it
+    works on every Windows 10/11 install with no extra modules.
+    """
+    target = f"{SERVICE}/{group}".replace("'", "''")
     ps = (
-        "Add-Type -AssemblyName 'System.Web' | Out-Null;"
-        f"$cred = [System.Web.Security.MembershipCreateStatus]::Success;"
-        f"$res = (cmdkey /list:{target}) -join \"`n\";"
-        # Fallback: read via vaultcmd if available, else give up.
-        # Most installs have CredentialManager PS module.
-        f"try {{ Import-Module CredentialManager -ErrorAction Stop;"
-        f"  $c = Get-StoredCredential -Target '{target}';"
-        f"  if ($c) {{ $c.GetNetworkCredential().Password }} }}"
-        f" catch {{ '' }}"
+        "Add-Type -Namespace CocCred -Name Native -MemberDefinition @\"\n"
+        "  [DllImport(\"advapi32.dll\", SetLastError=true, CharSet=CharSet.Unicode)]\n"
+        "  public static extern bool CredRead(string target, int type, int flags, out IntPtr cred);\n"
+        "  [DllImport(\"advapi32.dll\")]\n"
+        "  public static extern void CredFree(IntPtr buffer);\n"
+        "  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]\n"
+        "  public struct CREDENTIAL {\n"
+        "    public uint Flags; public uint Type;\n"
+        "    public string TargetName; public string Comment;\n"
+        "    public System.Runtime.InteropServices.ComTypes.FILETIME LastWritten;\n"
+        "    public uint CredentialBlobSize; public IntPtr CredentialBlob;\n"
+        "    public uint Persist; public uint AttributeCount; public IntPtr Attributes;\n"
+        "    public string TargetAlias; public string UserName;\n"
+        "  }\n"
+        "\"@;\n"
+        f"$ptr=[IntPtr]::Zero;$ok=[CocCred.Native]::CredRead('{target}',1,0,[ref]$ptr);"
+        "if(-not $ok){exit 1};"
+        "try{"
+        "  $c=[System.Runtime.InteropServices.Marshal]::PtrToStructure($ptr,[type]'CocCred.Native+CREDENTIAL');"
+        "  if($c.CredentialBlobSize -eq 0){''}else{"
+        "    [System.Runtime.InteropServices.Marshal]::PtrToStringUni($c.CredentialBlob,[int]($c.CredentialBlobSize/2))"
+        "  }"
+        "}finally{[CocCred.Native]::CredFree($ptr)}"
     )
     rc, out, _ = _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps])
     if rc != 0:
         return None
-    val = out.strip()
+    val = out.strip("\r\n").strip()
     return val or None
 
 

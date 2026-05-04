@@ -494,8 +494,27 @@ $("#btn-use").addEventListener("click", async () => {
 $("#btn-save").addEventListener("click", async () => {
   const p = getSelected(); if (!p) return;
   const body = collectForm(p.name);
-  try { await api("POST", "/api/preset", body); await refresh(); toast("Saved"); }
-  catch (err) { toast(err.message, "error"); }
+  // The API-key field has its own save button (which calls
+  // set_api_key_for_group → propagates across same-host siblings),
+  // but if the user typed a key here and clicked the more-prominent
+  // "Save changes" instead, the key would silently disappear. Save
+  // both: form fields first, then key (if present) via the proper
+  // group-propagation endpoint.
+  const typedKey = ($("#f-api_key").value || "").trim();
+  try {
+    await api("POST", "/api/preset", body);
+    if (typedKey) {
+      const r = await api("POST", "/api/keys", { name: p.name, api_key: typedKey });
+      $("#f-api_key").value = "";
+      const n = (r && r.updated && r.updated.length) || 1;
+      toast(n > 1
+        ? `Saved · API key shared with ${n} ${p.group || "group"} presets`
+        : "Saved · API key set");
+    } else {
+      toast("Saved");
+    }
+    await refresh();
+  } catch (err) { toast(err.message, "error"); }
 });
 
 $("#btn-save-key").addEventListener("click", async () => {
@@ -517,19 +536,6 @@ $("#btn-save-key").addEventListener("click", async () => {
 $("#btn-test").addEventListener("click", async () => {
   const p = getSelected(); if (!p) return;
   const out = $("#test-result");
-  // Warn if the form has unsaved edits — the test uses what's saved
-  // on disk, not what's currently typed in the form.
-  const formUrl = ($("#f-base") && $("#f-base").value || "").trim();
-  const formModel = ($("#f-model") && $("#f-model").value || "").trim();
-  const dirty = (p.base_url || "") !== formUrl || (p.model || "") !== formModel;
-  if (dirty) {
-    const proceed = await confirmDialog(
-      "Unsaved changes",
-      "The Test button uses the SAVED preset. You have unsaved edits in the form.\n\nClick Save changes first, or test against the previously-saved values?",
-      "Test saved values",
-    );
-    if (!proceed) return;
-  }
   out.className = "test-result muted";
   out.textContent = "Testing… sending a tiny request to " + (p.label || p.name);
   try {
@@ -541,7 +547,19 @@ $("#btn-test").addEventListener("click", async () => {
       out.className = "test-result error";
       // Full error, no truncation — these messages carry actionable info
       // (HTTP status, upstream's own error text, missing-key hint, etc.)
-      out.textContent = "✗ " + (r.error || "test failed (no error message returned)");
+      // If the server forgot to send `error`, surface what we DO have
+      // so the user has something to debug with.
+      let msg = r.error;
+      if (!msg) {
+        const bits = [];
+        if (r.stop_reason) bits.push(`stop_reason=${r.stop_reason}`);
+        if (r.response_text) bits.push(`response="${r.response_text}"`);
+        if (r.model) bits.push(`model=${r.model}`);
+        msg = bits.length
+          ? `test failed — server returned: ${bits.join(", ")}`
+          : "test failed — server did not include diagnostic info. Restart the Python server (`Ctrl+C` then re-launch) so it picks up the latest backend code, and try again.";
+      }
+      out.textContent = "✗ " + msg;
     }
     refreshUsage();
   } catch (err) {
@@ -724,9 +742,7 @@ $("#wpop-resync").addEventListener("click", async (e) => {
   const btn = e.currentTarget;
   btn.disabled = true; const oldText = btn.textContent; btn.textContent = "Syncing…";
   try {
-    const r = await fetch("/api/resync", { method: "POST", headers: { "X-CSRF-Token": csrf } });
-    const j = await r.json();
-    if (!r.ok || !j.ok) throw new Error(j.error || ("HTTP " + r.status));
+    const j = await api("POST", "/api/resync", {});
     toast("System resynced — open a NEW terminal so Claude Code picks it up", "ok");
     $("#wstrip-popover").classList.add("hidden");
     refreshStrip();

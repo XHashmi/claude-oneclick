@@ -450,6 +450,23 @@ class _Handler(BaseHTTPRequestHandler):
             # error stop_reason = failure (with detail).
             ok = bool(text.strip()) or tool_calls > 0 or stop_reason in ("end_turn", "stop_sequence", "max_tokens")
             preview = text[:200] if text else (f"({tool_calls} tool call(s))" if tool_calls else "(empty response)")
+            # When ok=False give the user something concrete to act on.
+            # Most "empty response" cases are: model id wrong (200 with
+            # nothing in content), provider rate-limited the no-cost
+            # ping, or the model itself doesn't support tool use and
+            # silently returned empty.
+            if ok:
+                error_msg = None
+            else:
+                bits = [
+                    f"upstream returned 200 with no usable content (stop_reason={stop_reason!r}).",
+                    "Common causes:",
+                    f"  - model id '{preset.get('model') or name}' is not recognized by the upstream",
+                    "  - the model id is recognized but doesn't support tool/function calling",
+                    "  - upstream silently rate-limited the test request",
+                    "Try clicking Refresh on the Models row to fetch the live catalog and pick a model from there.",
+                ]
+                error_msg = "\n".join(bits)
             self._send_json(200, {
                 "ok": ok,
                 "latency_ms": elapsed,
@@ -458,7 +475,8 @@ class _Handler(BaseHTTPRequestHandler):
                 "usage": resp.get("usage"),
                 "preset": name,
                 "model": resp.get("model"),
-                "error": None if ok else f"upstream returned an empty response (stop_reason={stop_reason!r})",
+                "raw_response": resp if not ok else None,  # surface for debugging
+                "error": error_msg,
             })
         except urllib.error.HTTPError as e:
             try:
