@@ -111,6 +111,25 @@ class RequestTranslatorTests(unittest.TestCase):
         out = anthropic_to_openai_request(req, preset)
         self.assertNotIn("response_format", out)
 
+    def test_no_output_cap_strips_max_tokens(self):
+        preset = dict(PRESET, no_output_cap=True)
+        # Even when Claude Code sends a max_tokens we should strip it.
+        req = {
+            "model": "x",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 16384,
+        }
+        out = anthropic_to_openai_request(req, preset)
+        self.assertNotIn("max_tokens", out)
+
+    def test_max_tokens_default_when_cap_not_disabled(self):
+        # Without no_output_cap and no explicit value anywhere, the
+        # proxy still falls back to a sensible default.
+        preset = dict(PRESET, no_output_cap=False, sampling={})
+        req = {"model": "x", "messages": [{"role": "user", "content": "hi"}]}
+        out = anthropic_to_openai_request(req, preset)
+        self.assertEqual(out["max_tokens"], 4096)
+
     def test_reasoning_flag_passthrough(self):
         preset = dict(PRESET, reasoning_enabled=True, reasoning_effort="high")
         req = {"model": "x", "messages": [{"role": "user", "content": "hi"}]}

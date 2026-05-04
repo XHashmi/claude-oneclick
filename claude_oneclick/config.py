@@ -82,6 +82,14 @@ _PRESET_FIELDS_WITH_DEFAULTS: dict[str, Any] = {
     #   "" / null     — don't send
     #   "json_object" — {"type": "json_object"} (most providers honor)
     "response_format": "",
+    # When True, strip max_tokens from the outbound request so the
+    # upstream runs to its model's natural stop point. Anthropic
+    # native requires max_tokens, so this only takes effect for
+    # OpenAI-format presets — users hitting api.anthropic.com still
+    # need to set a number. Big knob: with "no cap" set, a runaway
+    # generation is metered by the provider's own limits, so paid
+    # tiers can rack up cost. Use carefully.
+    "no_output_cap": False,
     "request_timeout_seconds": 600,
     "retries": 2,
     "retry_backoff": 1.5,

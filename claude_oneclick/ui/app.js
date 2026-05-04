@@ -326,6 +326,7 @@ function renderDetail() {
   $("#f-s-seed").value = samp.seed ?? "";
   $("#f-s-stop").value = Array.isArray(samp.stop) ? samp.stop.join(", ") : (samp.stop || "");
   $("#f-response_format").value = p.response_format || "";
+  $("#f-no_output_cap").checked = !!p.no_output_cap;
   $("#f-request_timeout_seconds").value = p.request_timeout_seconds ?? "";
   $("#f-retries").value = p.retries ?? "";
   $("#f-retry_backoff").value = p.retry_backoff ?? "";
@@ -1225,6 +1226,7 @@ function collectForm(name) {
       stop: parseStopList($("#f-s-stop").value),
     },
     response_format: $("#f-response_format").value,
+    no_output_cap: $("#f-no_output_cap").checked,
     request_timeout_seconds: num("#f-request_timeout_seconds"),
     retries: num("#f-retries"),
     retry_backoff: num("#f-retry_backoff"),

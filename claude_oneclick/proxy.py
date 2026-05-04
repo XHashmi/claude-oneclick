@@ -280,7 +280,14 @@ def anthropic_to_openai_request(req: dict[str, Any], preset: dict[str, Any]) -> 
             v = samp.get(k_ant)
         if v is not None and k_oai not in ("top_k",):  # OpenAI lacks top_k
             out[k_oai] = v
-    if "max_tokens" not in out:
+    # "No output cap" mode — preset-pinned. Claude Code always sends
+    # max_tokens (Anthropic requires it), but most OpenAI-style upstreams
+    # treat it as optional and run to the model's natural stop if it's
+    # absent. Strip the field so users can let DeepSeek/Groq/NIMs/
+    # OpenRouter actually finish long answers.
+    if preset.get("no_output_cap"):
+        out.pop("max_tokens", None)
+    elif "max_tokens" not in out:
         out["max_tokens"] = 4096
 
     # Extended OpenAI-standard sampling — preset-only (Claude Code never
