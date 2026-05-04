@@ -215,21 +215,27 @@ dialog {
   background: var(--bg-2); color: var(--fg);
   border: 1px solid var(--border); border-radius: 12px;
   padding: 22px; box-shadow: var(--shadow);
+  /* Hard pin: don't rely on the user-agent's top-layer placement.
+   * Every browser respects fixed positioning + z-index. */
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  margin: 0 !important;
+  width: min(560px, 92vw);
   max-width: min(560px, 92vw);
-  /* Cap height to the viewport with the dialog's own scrollbar so
-   * the page chrome (topbar, wiring strip, footer) can never crop or
-   * overlap the form. */
   max-height: calc(100vh - 40px);
   overflow-y: auto;
-  /* Belt-and-suspenders: modern browsers put modal <dialog> in the
-   * top layer, but legacy ones honor z-index instead. 1000 beats
-   * everything else we render. */
-  z-index: 1000;
+  z-index: 2147483647;  /* max signed 32-bit int — above ANY element */
 }
 dialog::backdrop {
   background: rgba(2, 6, 12, .82);
   backdrop-filter: blur(2px);
 }
+/* When in a top-of-page browser without good <dialog> support, the
+ * element might still render with display:none even when [open]. Force
+ * it. (No-op on browsers that already render correctly.) */
+dialog[open] { display: block !important; }
 dialog h2 { margin-top: 0; }
 
 /* ---- toast ---- */
@@ -609,6 +615,23 @@ body:has(dialog[open]) .banner { display: none !important; }
 .topbar-right { display: flex; align-items: center; gap: 16px; }
 .kbd-hint { font-size: 11px; letter-spacing: .5px; }
 @media (max-width: 720px) { .kbd-hint { display: none; } }
+.icon-btn {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  width: 34px; height: 34px;
+  border-radius: 8px;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .12s ease, border-color .12s ease, transform .12s ease;
+}
+.icon-btn:hover { background: var(--bg); border-color: var(--accent); }
+.icon-btn:active { transform: scale(0.96); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .pill.secondary { background: var(--bg); }
 .pill.secondary.warn { color: var(--warn); border-color: var(--warn); }
 .pill.secondary.ok { color: var(--accent-2); border-color: var(--accent-2); }
