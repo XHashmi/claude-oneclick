@@ -181,6 +181,48 @@ def _typed_tool_to_function(t: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _read_response_bounded(up: Any, *, max_bytes: int = 32 * 1024 * 1024) -> bytes:
+    """Read a non-streaming HTTP response body without hanging on keep-alive.
+
+    Plain ``up.read()`` reads until upstream EOF. Modern HTTP/1.1 servers
+    typically use keep-alive — they send the body, then DON'T close the
+    socket, expecting the client to read up to Content-Length and reuse
+    the connection. ``read()`` with no length argument doesn't know to
+    stop, so it sits waiting for the upstream's TCP idle timeout
+    (30-300s). During that wait, the proxy's response to Claude Code
+    has already been written (the body is in our buffer) but the
+    handler hasn't returned, so the connection stays open from Claude
+    Code's perspective and the spinner sits there indefinitely.
+
+    Strategy:
+      1. If the upstream sent ``Content-Length``, read exactly that
+         many bytes — bounded.
+      2. Otherwise read in chunks until empty or until ``max_bytes``,
+         whichever comes first.
+
+    The 32 MiB ceiling matches our request-body cap and protects
+    against a malicious upstream sending an unbounded reply.
+    """
+    cl = None
+    try:
+        cl_header = up.headers.get("Content-Length")
+        if cl_header is not None:
+            cl = int(cl_header)
+    except (AttributeError, ValueError, TypeError):
+        cl = None
+    if cl is not None and 0 <= cl <= max_bytes:
+        return up.read(cl)
+    chunks: list[bytes] = []
+    total = 0
+    while total < max_bytes:
+        chunk = up.read(65536)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+    return b"".join(chunks)
+
+
 _THINK_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL | re.IGNORECASE)
 
 
@@ -278,16 +320,40 @@ def _flatten_anthropic_content(content: Any) -> tuple[str, list[dict[str, Any]],
             })
         elif btype == "tool_result":
             inner = block.get("content")
+            inner_text_parts: list[str] = []
+            inner_images: list[dict[str, Any]] = []
             if isinstance(inner, list):
-                inner_text = "".join(
-                    b.get("text", "") for b in inner if isinstance(b, dict) and b.get("type") == "text"
-                )
+                for b in inner:
+                    if not isinstance(b, dict):
+                        continue
+                    if b.get("type") == "text":
+                        inner_text_parts.append(b.get("text") or "")
+                    elif b.get("type") == "image":
+                        # Tool result with an image (e.g. screenshot from
+                        # a computer-use tool). OpenAI's role=tool
+                        # message can't carry images directly, so we
+                        # surface them as a follow-up user-role image
+                        # part the model will see right after the tool
+                        # text. Anthropic's tool_result already mixes
+                        # text + image so the model trains on this pattern.
+                        src = b.get("source") or {}
+                        if src.get("type") == "base64":
+                            url = f"data:{src.get('media_type', 'image/png')};base64,{src.get('data', '')}"
+                            inner_images.append({"type": "image_url", "image_url": {"url": url}})
+                        elif src.get("type") == "url" and src.get("url"):
+                            inner_images.append({"type": "image_url", "image_url": {"url": src["url"]}})
+                inner_text = "".join(inner_text_parts)
             elif isinstance(inner, str):
                 inner_text = inner
             else:
                 inner_text = json.dumps(inner) if inner is not None else ""
             if block.get("is_error"):
                 inner_text = f"[tool error] {inner_text}".rstrip()
+            # Extend the tool message itself with the image; the
+            # caller-side message construction lifts these into a user
+            # role+image follow-up message for vision-capable upstreams.
+            if inner_images:
+                images.extend(inner_images)
             tool_results.append({
                 "role": "tool",
                 "tool_call_id": block.get("tool_use_id") or "",
@@ -479,10 +545,18 @@ def anthropic_to_openai_request(req: dict[str, Any], preset: dict[str, Any]) -> 
             mapped_effort = "high"
         out["reasoning_effort"] = mapped_effort
         effort = mapped_effort
-        # Also pass the Anthropic-style `thinking` block through so
-        # upstreams that read it (DeepSeek V4 has `thinking` param,
-        # NIMs supports nvext.thinking on some models) honor it directly.
-        out["thinking"] = {"type": "enabled", "budget_tokens": budget or 4096}
+        # Pass an Anthropic-style `thinking` block through so upstreams
+        # that read it honor it directly. DeepSeek's late-2025 docs
+        # specifically expect ``{type, reasoning_effort: "high"|"max"}``
+        # — we emit BOTH shapes (budget + their effort enum) so the
+        # native DeepSeek API and other upstreams that take budget_tokens
+        # both work.
+        ds_effort = "max" if mapped_effort == "high" else "high"
+        out["thinking"] = {
+            "type": "enabled",
+            "budget_tokens": budget or 4096,
+            "reasoning_effort": ds_effort,
+        }
     elif preset.get("reasoning_enabled"):
         out["reasoning_effort"] = effort
 
@@ -542,6 +616,14 @@ def anthropic_to_openai_request(req: dict[str, Any], preset: dict[str, Any]) -> 
         if req.get("disable_parallel_tool_use") is True:
             out["parallel_tool_calls"] = False
 
+    # metadata passthrough — Anthropic and OpenAI both accept a top-level
+    # metadata object (typically {user_id: ...}). Most third-party
+    # providers ignore it, which is fine — but for those that DO log it
+    # for audit/billing (OpenAI, some self-hosted gateways), losing it
+    # makes attribution impossible.
+    if req.get("metadata"):
+        out["metadata"] = req["metadata"]
+
     return out
 
 
@@ -561,6 +643,10 @@ def openai_to_anthropic_response(resp: dict[str, Any], req_model: str) -> dict[s
     # "No response requested". Use the reasoning as a fallback, after
     # stripping the inline tags.
     reasoning_text = msg.get("reasoning_content") or msg.get("reasoning") or ""
+    if not reasoning_text:
+        nvext = msg.get("nvext") or {}
+        if isinstance(nvext, dict):
+            reasoning_text = nvext.get("thinking") or nvext.get("reasoning_content") or ""
     if isinstance(text, str):
         cleaned, inline_reasoning = _strip_think_tags(text)
         if not reasoning_text and inline_reasoning:
@@ -708,7 +794,18 @@ class _StreamTranslator:
         # "Deliberating..." for the whole duration with no feedback.
         # We also keep the buffered copy so finish() can fall back if
         # the real `content` never comes through.
+        # Reasoning content can arrive under three keys depending on
+        # provider:
+        #   * ``reasoning_content`` — DeepSeek V4 native
+        #   * ``reasoning`` — Groq, OpenRouter
+        #   * ``nvext.thinking`` — NVIDIA NIMs vendor extension on
+        #     reasoning-capable models (Nemotron-Super, DeepSeek-V4-Pro
+        #     hosted via NIMs, etc.)
         rc = delta.get("reasoning_content") or delta.get("reasoning")
+        if not rc:
+            nvext = delta.get("nvext") or {}
+            if isinstance(nvext, dict):
+                rc = nvext.get("thinking") or nvext.get("reasoning_content")
         if isinstance(rc, str) and rc:
             self._reasoning_buf += rc
             mode = self.stream_reasoning_mode
@@ -1199,6 +1296,18 @@ class _Handler(BaseHTTPRequestHandler):
         for k, v in (preset.get("extra_headers") or {}).items():
             if isinstance(v, str):
                 headers[k] = v
+        # Anthropic beta headers (e.g. anthropic-beta:
+        # prompt-caching-2024-07-31, message-batches-2024-09-24) are
+        # only meaningful when we're talking to api.anthropic.com.
+        # Forward them when the preset is Anthropic-format (the proxy
+        # mostly isn't in that path, but a user may set up a custom
+        # Anthropic-compatible upstream behind us). Drop on third-party
+        # OpenAI-style providers — they 400 on unknown headers.
+        upstream_is_anthropic = "anthropic.com" in (base or "").lower()
+        if upstream_is_anthropic:
+            for hk, hv in self.headers.items():
+                if hk.lower().startswith("anthropic-") and hk not in headers:
+                    headers[hk] = hv
 
         timeout = float(preset.get("request_timeout_seconds") or 600)
         retries = int(preset.get("retries") or 0)
@@ -1253,11 +1362,20 @@ class _Handler(BaseHTTPRequestHandler):
             self._stream_back(up, oai_req["model"], preset)
         else:
             try:
-                raw_resp = up.read()
+                raw_resp = _read_response_bounded(up)
                 resp_obj = json.loads(raw_resp.decode("utf-8"))
             except Exception as e:
                 self._send_json(502, {"error": {"message": f"bad upstream JSON: {e}"}})
                 return
+            finally:
+                # Reclaim the upstream socket NOW. Without this, a
+                # keep-alive connection sat idle waiting for a TCP
+                # timeout (30-300s) and Claude Code's background call
+                # spinner would hang for the same duration.
+                try:
+                    up.close()
+                except Exception:
+                    pass
             anth = openai_to_anthropic_response(resp_obj, oai_req["model"])
             # Record usage to the per-preset ledger.
             try:

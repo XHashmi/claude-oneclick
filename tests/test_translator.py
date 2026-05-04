@@ -6,6 +6,7 @@ from claude_oneclick.proxy import (
     openai_to_anthropic_response,
     _StreamTranslator,
     _join_endpoint,
+    _read_response_bounded,
 )
 
 
@@ -111,6 +112,37 @@ class RequestTranslatorTests(unittest.TestCase):
         out = anthropic_to_openai_request(req, preset)
         self.assertNotIn("response_format", out)
 
+    def test_metadata_passthrough(self):
+        preset = dict(PRESET)
+        req = {
+            "model": "x",
+            "messages": [{"role": "user", "content": "hi"}],
+            "metadata": {"user_id": "u-123"},
+        }
+        out = anthropic_to_openai_request(req, preset)
+        self.assertEqual(out["metadata"], {"user_id": "u-123"})
+
+    def test_metadata_omitted_when_absent(self):
+        preset = dict(PRESET)
+        req = {"model": "x", "messages": [{"role": "user", "content": "hi"}]}
+        out = anthropic_to_openai_request(req, preset)
+        self.assertNotIn("metadata", out)
+
+    def test_tool_result_image_extracted_to_image_part(self):
+        # When a tool_result includes an image (e.g. screenshot from
+        # computer-use), it must reach a vision-capable model — not
+        # silently dropped.
+        from claude_oneclick.proxy import _flatten_anthropic_content
+        text, tools, results, images = _flatten_anthropic_content([
+            {"type": "tool_result", "tool_use_id": "tu_1", "content": [
+                {"type": "text", "text": "screenshot taken"},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "QkFTRTY0"}},
+            ]},
+        ])
+        self.assertEqual(len(images), 1)
+        self.assertTrue(images[0]["image_url"]["url"].startswith("data:image/png;base64,"))
+        self.assertEqual(results[0]["content"], "screenshot taken")
+
     def test_history_thinking_blocks_become_text_marker(self):
         # Claude Code re-sends previous-turn thinking blocks in the
         # conversation history. The upstream model can't read Anthropic's
@@ -173,7 +205,11 @@ class RequestTranslatorTests(unittest.TestCase):
         }
         out = anthropic_to_openai_request(req, preset)
         self.assertEqual(out["reasoning_effort"], "medium")
-        self.assertEqual(out["thinking"], {"type": "enabled", "budget_tokens": 6000})
+        # Includes both budget_tokens (Anthropic shape) and DeepSeek's
+        # reasoning_effort enum so either upstream variant is honored.
+        self.assertEqual(out["thinking"]["type"], "enabled")
+        self.assertEqual(out["thinking"]["budget_tokens"], 6000)
+        self.assertIn(out["thinking"]["reasoning_effort"], ("high", "max"))
 
     def test_no_output_cap_uses_high_ceiling(self):
         # With "No output cap" we override Claude Code's modest cap with
@@ -512,6 +548,70 @@ class JoinEndpointTests(unittest.TestCase):
                          "https://openrouter.ai/api/v1/chat/completions")
         self.assertEqual(_join_endpoint("https://api.together.xyz/v1/", "models"),
                          "https://api.together.xyz/v1/models")
+
+
+class BoundedReadTests(unittest.TestCase):
+    """Non-streaming response reads must NOT hang on a keep-alive socket.
+
+    The bug: ``up.read()`` with no arg waits for upstream EOF. Modern
+    HTTP/1.1 servers send the body but keep the connection open for
+    reuse, so ``read()`` blocks until upstream's TCP idle timeout
+    (30-300s) — which is exactly the "Clauding…" / "Puzzling…" spinner
+    hang the user reported.
+    """
+    class _FakeUpstream:
+        def __init__(self, body: bytes, content_length: int | None):
+            self._body = body
+            self._pos = 0
+            self.headers = {"Content-Length": str(content_length)} if content_length is not None else {}
+
+        def read(self, n: int = -1) -> bytes:
+            if n is None or n < 0:
+                # Simulates the buggy behavior — would block on a real
+                # keep-alive socket. We approximate that by returning
+                # nothing further so the test would hang if the helper
+                # ever calls read() with no length cap.
+                return b""
+            chunk = self._body[self._pos:self._pos + n]
+            self._pos += len(chunk)
+            return chunk
+
+    def test_reads_exact_content_length_and_doesnt_block(self):
+        body = b'{"hello": "world"}'
+        up = self._FakeUpstream(body, content_length=len(body))
+        out = _read_response_bounded(up)
+        self.assertEqual(out, body)
+
+    def test_chunked_no_content_length_drains_until_empty(self):
+        body = b'{"a":1,"b":2}'
+        up = self._FakeUpstream(body, content_length=None)
+        out = _read_response_bounded(up)
+        self.assertEqual(out, body)
+
+    def test_max_bytes_protects_from_runaway_upstream(self):
+        # 1 MiB body, 64 KiB cap -> stops at 64 KiB.
+        body = b"x" * (1024 * 1024)
+        up = self._FakeUpstream(body, content_length=None)
+        out = _read_response_bounded(up, max_bytes=64 * 1024)
+        self.assertLessEqual(len(out), 64 * 1024)
+
+
+class NimsNvextTests(unittest.TestCase):
+    def test_nvext_thinking_in_response(self):
+        oai = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "nvext": {"thinking": "let me think about this..."},
+                },
+                "finish_reason": "stop",
+            }],
+        }
+        out = openai_to_anthropic_response(oai, "deepseek-ai/deepseek-v4-pro")
+        # Reasoning surfaced as fallback because content was empty.
+        self.assertEqual(len(out["content"]), 1)
+        self.assertIn("let me think", out["content"][0]["text"])
 
     def test_endpoint_already_has_v1(self):
         # Defensive: if a caller passes "v1/chat/completions" we don't double up.
