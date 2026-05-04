@@ -1245,6 +1245,11 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _handle_messages(self) -> None:
         log = logging.getLogger("claude_oneclick.proxy")
+        # User-facing label for the proxy log: lets users see "after
+        # my message there were 4 follow-up requests, the 3rd one took
+        # 47s" without having to dig through SSE chunks.
+        log.info("inbound /v1/messages from %s (override=%s)",
+                 self.client_address[0], self.headers.get("X-CoC-Preset"))
         try:
             length = int(self.headers.get("Content-Length") or 0)
             if length < 0 or length > _MAX_BODY_BYTES:
@@ -1358,6 +1363,8 @@ class _Handler(BaseHTTPRequestHandler):
                 })
                 return
 
+        import time as _t
+        t_start = _t.time()
         if wants_stream:
             self._stream_back(up, oai_req["model"], preset)
         else:
@@ -1376,6 +1383,8 @@ class _Handler(BaseHTTPRequestHandler):
                     up.close()
                 except Exception:
                     pass
+            log.info("← upstream non-stream done in %.2fs (model=%s, bytes=%d)",
+                     _t.time() - t_start, oai_req.get("model"), len(raw_resp))
             anth = openai_to_anthropic_response(resp_obj, oai_req["model"])
             # Record usage to the per-preset ledger.
             try:
