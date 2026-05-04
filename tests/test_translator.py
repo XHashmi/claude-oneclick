@@ -228,6 +228,93 @@ def _decode(raw: bytes) -> dict:
     return {}
 
 
+class VisionAndToolEdgeTests(unittest.TestCase):
+    def test_image_block_becomes_image_url_part(self):
+        req = {
+            "model": "x",
+            "messages": [{"role": "user", "content": [
+                {"type": "text", "text": "describe this:"},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"}},
+            ]}],
+        }
+        out = anthropic_to_openai_request(req, PRESET)
+        msg = out["messages"][-1]
+        self.assertIsInstance(msg["content"], list)
+        self.assertEqual(msg["content"][0], {"type": "text", "text": "describe this:"})
+        img = msg["content"][1]
+        self.assertEqual(img["type"], "image_url")
+        self.assertTrue(img["image_url"]["url"].startswith("data:image/png;base64,"))
+
+    def test_image_url_block_passes_through(self):
+        req = {
+            "model": "x",
+            "messages": [{"role": "user", "content": [
+                {"type": "image", "source": {"type": "url", "url": "https://e.example/cat.jpg"}},
+            ]}],
+        }
+        out = anthropic_to_openai_request(req, PRESET)
+        msg = out["messages"][-1]
+        self.assertEqual(msg["content"][0], {
+            "type": "image_url", "image_url": {"url": "https://e.example/cat.jpg"},
+        })
+
+    def test_disable_vision_drops_images(self):
+        # When the preset opts out of vision, image blocks are silently
+        # dropped (don't poison the request for non-vision providers).
+        preset = dict(PRESET, disable_vision=True)
+        req = {
+            "model": "x",
+            "messages": [{"role": "user", "content": [
+                {"type": "text", "text": "hi"},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "A"}},
+            ]}],
+        }
+        out = anthropic_to_openai_request(req, preset)
+        # Falls back to flat string content (no image part).
+        self.assertEqual(out["messages"][-1]["content"], "hi")
+
+    def test_tool_result_is_error_marker(self):
+        req = {
+            "model": "x",
+            "messages": [
+                {"role": "user", "content": "calc"},
+                {"role": "assistant", "content": [
+                    {"type": "tool_use", "id": "t_1", "name": "div", "input": {"a": 1, "b": 0}},
+                ]},
+                {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": "t_1", "is_error": True,
+                     "content": [{"type": "text", "text": "division by zero"}]},
+                ]},
+            ],
+        }
+        out = anthropic_to_openai_request(req, PRESET)
+        tool_msg = next(m for m in out["messages"] if m["role"] == "tool")
+        self.assertIn("[tool error]", tool_msg["content"])
+        self.assertIn("division by zero", tool_msg["content"])
+
+    def test_disable_parallel_tool_use_maps(self):
+        req = {
+            "model": "x",
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [{"name": "x", "input_schema": {}}],
+            "disable_parallel_tool_use": True,
+        }
+        out = anthropic_to_openai_request(req, PRESET)
+        self.assertEqual(out["parallel_tool_calls"], False)
+
+    def test_json_mode_bridge_via_tool_choice(self):
+        # tool_choice → tool with the configured json-mode tool name
+        # should ALSO set response_format: json_object.
+        req = {
+            "model": "x",
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [{"name": "json_response", "input_schema": {"type": "object"}}],
+            "tool_choice": {"type": "tool", "name": "json_response"},
+        }
+        out = anthropic_to_openai_request(req, PRESET)
+        self.assertEqual(out["response_format"], {"type": "json_object"})
+
+
 class JoinEndpointTests(unittest.TestCase):
     """Both URL conventions must produce one (and only one) `/v1/...`."""
 

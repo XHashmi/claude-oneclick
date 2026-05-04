@@ -87,27 +87,31 @@ def _substitute_effort(v: Any, effort: str) -> Any:
         return [_substitute_effort(vv, effort) for vv in v]
     return v
 
-def _flatten_anthropic_content(content: Any) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+def _flatten_anthropic_content(content: Any) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Anthropic content can be a string or a list of blocks. Return:
 
     - text: concatenated text blocks
     - tool_uses: list of OpenAI ``tool_calls`` entries (assistant tool use)
     - tool_results: list of OpenAI ``role=tool`` messages (user tool result)
+    - images: list of OpenAI ``image_url`` content parts (vision passthrough)
 
-    Anthropic's prompt-cache ``cache_control`` markers (``{"type":"text",
-    "text":"…","cache_control":{...}}``) are silently flattened to plain
-    text — most OpenAI-compatible providers 400 on the unknown field.
-    Users who want cache passthrough can opt in via the preset's
-    ``prompt_cache_passthrough`` flag (which keeps the marker on
-    upstreams that *do* understand it).
+    Anthropic's prompt-cache ``cache_control`` markers are silently
+    flattened — most OpenAI-compatible providers 400 on the unknown
+    field. Users who want cache passthrough can opt in via the preset's
+    ``prompt_cache_passthrough`` flag.
+
+    ``tool_result`` blocks marked ``is_error: true`` are prefixed with
+    a ``[tool error]`` sentinel so the upstream model sees the failure
+    (OpenAI's ``role=tool`` message has no native error flag).
     """
     if content is None:
-        return "", [], []
+        return "", [], [], []
     if isinstance(content, str):
-        return content, [], []
+        return content, [], [], []
     text_parts: list[str] = []
     tool_uses: list[dict[str, Any]] = []
     tool_results: list[dict[str, Any]] = []
+    images: list[dict[str, Any]] = []
     for block in content:
         if not isinstance(block, dict):
             continue
@@ -133,19 +137,27 @@ def _flatten_anthropic_content(content: Any) -> tuple[str, list[dict[str, Any]],
                 inner_text = inner
             else:
                 inner_text = json.dumps(inner) if inner is not None else ""
+            if block.get("is_error"):
+                inner_text = f"[tool error] {inner_text}".rstrip()
             tool_results.append({
                 "role": "tool",
                 "tool_call_id": block.get("tool_use_id") or "",
                 "content": inner_text,
             })
         elif btype == "image":
-            # Best-effort: most OpenAI providers accept image_url content
-            # parts. Pass them through.
+            # Real OpenAI vision passthrough. Anthropic spec:
+            #   {"type": "image", "source": {"type": "base64",
+            #    "media_type": "image/png", "data": "..."}}
+            #   or {"type": "image", "source": {"type": "url", "url": "..."}}
+            # OpenAI spec:
+            #   {"type": "image_url", "image_url": {"url": "..."}}
             src = block.get("source") or {}
             if src.get("type") == "base64":
                 url = f"data:{src.get('media_type', 'image/png')};base64,{src.get('data', '')}"
-                text_parts.append(f"[image: {url[:30]}…]")
-    return "\n".join(p for p in text_parts if p), tool_uses, tool_results
+                images.append({"type": "image_url", "image_url": {"url": url}})
+            elif src.get("type") == "url" and src.get("url"):
+                images.append({"type": "image_url", "image_url": {"url": src["url"]}})
+    return "\n".join(p for p in text_parts if p), tool_uses, tool_results, images
 
 
 def anthropic_to_openai_request(req: dict[str, Any], preset: dict[str, Any]) -> dict[str, Any]:
@@ -169,11 +181,25 @@ def anthropic_to_openai_request(req: dict[str, Any], preset: dict[str, Any]) -> 
     if sys_text:
         out_messages.append({"role": "system", "content": sys_text})
 
+    disable_vision = bool(preset.get("disable_vision"))
     for msg in req.get("messages") or []:
         role = msg.get("role")
-        text, tool_uses, tool_results = _flatten_anthropic_content(msg.get("content"))
+        text, tool_uses, tool_results, images = _flatten_anthropic_content(msg.get("content"))
+        if disable_vision:
+            images = []
+        # Build the OpenAI `content` field: when there are images,
+        # use the multipart array; otherwise keep a flat string for
+        # back-compat with non-vision providers that 400 on arrays.
+        def _build_content(t: str, imgs: list[dict[str, Any]]) -> Any:
+            if imgs:
+                parts: list[dict[str, Any]] = []
+                if t:
+                    parts.append({"type": "text", "text": t})
+                parts.extend(imgs)
+                return parts
+            return t
         if role == "assistant":
-            entry: dict[str, Any] = {"role": "assistant", "content": text or None}
+            entry: dict[str, Any] = {"role": "assistant", "content": _build_content(text, []) or None}
             if tool_uses:
                 entry["tool_calls"] = tool_uses
             out_messages.append(entry)
@@ -182,10 +208,10 @@ def anthropic_to_openai_request(req: dict[str, Any], preset: dict[str, Any]) -> 
             # wants them as separate role=tool messages.
             if tool_results:
                 out_messages.extend(tool_results)
-            if text:
-                out_messages.append({"role": "user", "content": text})
+            if text or images:
+                out_messages.append({"role": "user", "content": _build_content(text, images)})
         else:
-            out_messages.append({"role": role or "user", "content": text})
+            out_messages.append({"role": role or "user", "content": _build_content(text, images)})
 
     # Resolve the upstream model id.
     #
@@ -283,6 +309,21 @@ def anthropic_to_openai_request(req: dict[str, Any], preset: dict[str, Any]) -> 
                 out["tool_choice"] = "required"
             elif ttype == "tool" and tc.get("name"):
                 out["tool_choice"] = {"type": "function", "function": {"name": tc["name"]}}
+                # JSON-mode bridge: if the user named a tool whose name
+                # matches the preset's `json_mode_tool_name` (default
+                # "json_response"), also flip OpenAI's response_format
+                # so providers that don't grok function-as-json-enforcer
+                # still emit JSON.
+                json_tool = preset.get("json_mode_tool_name") or "json_response"
+                if tc["name"] == json_tool:
+                    out["response_format"] = {"type": "json_object"}
+            elif ttype == "none":
+                out["tool_choice"] = "none"
+
+        # Anthropic's `disable_parallel_tool_use: true` -> OpenAI's
+        # `parallel_tool_calls: false`.
+        if req.get("disable_parallel_tool_use") is True:
+            out["parallel_tool_calls"] = False
 
     return out
 
@@ -484,6 +525,56 @@ class _StreamTranslator:
 _MAX_BODY_BYTES = 32 * 1024 * 1024  # 32 MiB safety cap on any single request
 
 
+def _attempt_with_retries(url, body, headers, timeout, retries, backoff, oai_req, log):
+    """Try POSTing to `url` with `body`/`headers`. Returns (response_or_None,
+    status_or_None, err_text_or_None). On success, response is the urlopen
+    handle; on terminal failure, response is None and the caller can decide
+    what to do (e.g. try a fallback preset).
+
+    Handles:
+      - 5xx/429 retries with exponential backoff and Retry-After
+      - the `stream_options.include_usage` 400 fallback (drops the option
+        and retries once)
+    """
+    attempt = 0
+    while True:
+        try:
+            up_req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+            up = urllib.request.urlopen(up_req, timeout=timeout)
+            return up, None, None
+        except urllib.error.HTTPError as e:
+            err_body = b""
+            try:
+                err_body = e.read()
+            except Exception:
+                pass
+            err_text = err_body.decode("utf-8", "replace")[:1000]
+            if e.code == 400 and "stream_options" in err_text and "stream_options" in oai_req:
+                log.info("upstream rejected stream_options; retrying without it")
+                oai_req.pop("stream_options", None)
+                body = json.dumps(oai_req).encode("utf-8")
+                continue
+            retriable = (500 <= e.code < 600) or e.code == 429
+            if retriable and attempt < retries:
+                delay = backoff ** attempt
+                ra = e.headers.get("Retry-After") if e.headers else None
+                if ra:
+                    try:
+                        delay = max(delay, float(ra))
+                    except ValueError:
+                        pass
+                time.sleep(delay)
+                attempt += 1
+                continue
+            return None, e.code, err_text
+        except Exception as e:
+            if attempt < retries:
+                time.sleep(backoff ** attempt)
+                attempt += 1
+                continue
+            return None, 502, str(e)
+
+
 class _Handler(BaseHTTPRequestHandler):
     server_version = "claude-oneclick-proxy/0.1"
 
@@ -643,10 +734,16 @@ class _Handler(BaseHTTPRequestHandler):
 
         body = json.dumps(oai_req).encode("utf-8")
         url = _join_endpoint(base, "chat/completions")
+        # One Idempotency-Key per inbound request, reused across retries
+        # so a flaky network 5xx that the upstream actually completed
+        # doesn't double-bill. OpenAI honors this; non-OpenAI providers
+        # ignore it.
+        idem = f"coc-{uuid.uuid4().hex}"
         headers = {
             "Content-Type": "application/json",
             "Accept": "text/event-stream" if wants_stream else "application/json",
             "Authorization": f"Bearer {api_key}",
+            "Idempotency-Key": idem,
         }
         for k, v in (preset.get("extra_headers") or {}).items():
             if isinstance(v, str):
@@ -658,51 +755,47 @@ class _Handler(BaseHTTPRequestHandler):
 
         log.info("→ upstream %s model=%s stream=%s", url, oai_req.get("model"), wants_stream)
 
-        attempt = 0
-        while True:
-            try:
-                up_req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-                up = urllib.request.urlopen(up_req, timeout=timeout)
-                break
-            except urllib.error.HTTPError as e:
-                err_body = b""
-                try:
-                    err_body = e.read()
-                except Exception:
-                    pass
-                err_text = err_body.decode("utf-8", "replace")[:1000]
-
-                # Some providers reject `stream_options.include_usage` with
-                # 400 (older self-hosted vLLM, certain enterprise gateways).
-                # Drop the option and retry once before bubbling up.
-                if e.code == 400 and "stream_options" in err_text and "stream_options" in oai_req:
-                    log.info("upstream rejected stream_options; retrying without it")
-                    oai_req.pop("stream_options", None)
-                    body = json.dumps(oai_req).encode("utf-8")
-                    continue
-
-                # Retry on 5xx (server-side) and 429 (rate limited),
-                # honoring the upstream's `retry-after` header when set.
-                retriable = (500 <= e.code < 600) or e.code == 429
-                if retriable and attempt < retries:
-                    delay = backoff ** attempt
-                    ra = e.headers.get("Retry-After") if e.headers else None
-                    if ra:
-                        try:
-                            delay = max(delay, float(ra))
-                        except ValueError:
-                            pass
-                    time.sleep(delay)
-                    attempt += 1
-                    continue
-                self._send_json(e.code, {"type": "error", "error": {"type": "upstream_error", "message": err_text}})
-                return
-            except Exception as e:
-                if attempt < retries:
-                    time.sleep(backoff ** attempt)
-                    attempt += 1
-                    continue
-                self._send_json(502, {"type": "error", "error": {"type": "upstream_error", "message": str(e)}})
+        up, fail_status, fail_text = _attempt_with_retries(
+            url, body, headers, timeout, retries, backoff, oai_req, log,
+        )
+        if up is None:
+            # Primary preset exhausted retries. If the user configured a
+            # fallback, take exactly one hop to it. Never cascade.
+            fb_name = preset.get("fallback")
+            if fb_name and fb_name != active:
+                fb_preset = get_preset(fb_name, cfg)
+                if fb_preset and (fb_preset.get("format") or "openai").lower() == "openai":
+                    log.info("primary failed (%s); falling back to preset %s", fail_status, fb_name)
+                    fb_base = (fb_preset.get("base_url") or "").rstrip("/")
+                    fb_key = fb_preset.get("api_key") or ""
+                    if fb_base and fb_key:
+                        # Re-translate using the fallback preset's settings
+                        # (different model id, different headers).
+                        fb_req = anthropic_to_openai_request(req, fb_preset)
+                        fb_req["stream"] = wants_stream
+                        if wants_stream:
+                            fb_req.setdefault("stream_options", {"include_usage": True})
+                        fb_body = json.dumps(fb_req).encode("utf-8")
+                        fb_url = _join_endpoint(fb_base, "chat/completions")
+                        fb_headers = {
+                            "Content-Type": "application/json",
+                            "Accept": "text/event-stream" if wants_stream else "application/json",
+                            "Authorization": f"Bearer {fb_key}",
+                            "Idempotency-Key": idem,
+                        }
+                        for k, v in (fb_preset.get("extra_headers") or {}).items():
+                            if isinstance(v, str):
+                                fb_headers[k] = v
+                        up, _, _ = _attempt_with_retries(
+                            fb_url, fb_body, fb_headers, timeout, 0, backoff, fb_req, log,
+                        )
+                        if up is not None:
+                            oai_req = fb_req  # for the streamer below
+            if up is None:
+                self._send_json(fail_status or 502, {
+                    "type": "error",
+                    "error": {"type": "upstream_error", "message": fail_text or "upstream unreachable"},
+                })
                 return
 
         if wants_stream:

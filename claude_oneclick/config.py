@@ -86,6 +86,15 @@ _PRESET_FIELDS_WITH_DEFAULTS: dict[str, Any] = {
     # reasoning toggle is ON.
     "extra_body": {},
     "routing_rules": [],
+    # If the primary upstream errors after retries, try this preset
+    # exactly once before bubbling up. Set to "" to disable.
+    "fallback": "",
+    # OpenAI-format providers that 400 on `image_url` content parts.
+    "disable_vision": False,
+    # When the request's `tool_choice.type == "tool"` and the chosen
+    # tool's `name` matches this string, the proxy ALSO sets
+    # `response_format: {"type": "json_object"}` on the outbound call.
+    "json_mode_tool_name": "json_response",
 }
 
 
