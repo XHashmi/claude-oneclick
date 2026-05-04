@@ -1422,6 +1422,22 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _stream_back(self, up: Any, model: str, preset: dict | None = None) -> None:
         log = logging.getLogger("claude_oneclick.proxy")
+        # Optional raw-stream capture for diagnosis. When the user sets
+        # COC_DEBUG_STREAM=1 (env var) we tee every byte we send to
+        # Claude Code to a per-request file under
+        # ~/.config/claude-oneclick/streams/. Lets the user audit the
+        # exact wire format when the spinner hangs — paste a file's
+        # contents and we can see what Claude Code sees.
+        debug_fp = None
+        if os.environ.get("COC_DEBUG_STREAM"):
+            try:
+                from claude_oneclick.paths import config_dir
+                streams_dir = config_dir() / "streams"
+                streams_dir.mkdir(parents=True, exist_ok=True)
+                debug_fp = (streams_dir / f"{int(time.time()*1000)}-{model}.sse").open("wb")
+            except Exception:
+                debug_fp = None
+
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -1441,9 +1457,18 @@ class _Handler(BaseHTTPRequestHandler):
             mode = preset.get("stream_reasoning") or "thinking_block"
             if mode in ("thinking_block", "text_prefix", "hidden"):
                 translator.stream_reasoning_mode = mode
-        for chunk_bytes in translator.start():
-            self.wfile.write(chunk_bytes)
+        def _write(data: bytes) -> None:
+            self.wfile.write(data)
             self.wfile.flush()
+            if debug_fp is not None:
+                try:
+                    debug_fp.write(data)
+                    debug_fp.flush()
+                except Exception:
+                    pass
+
+        for chunk_bytes in translator.start():
+            _write(chunk_bytes)
 
         buf = b""
         done = False
@@ -1478,14 +1503,12 @@ class _Handler(BaseHTTPRequestHandler):
                         except Exception:
                             continue
                         for out in translator.handle_chunk(chunk):
-                            self.wfile.write(out)
-                            self.wfile.flush()
+                            _write(out)
                     buf = b""
         finally:
             for out in translator.finish():
                 try:
-                    self.wfile.write(out)
-                    self.wfile.flush()
+                    _write(out)
                 except Exception:
                     break
             # Close the upstream socket so we don't leak file
@@ -1495,6 +1518,9 @@ class _Handler(BaseHTTPRequestHandler):
                 up.close()
             except Exception:
                 pass
+            if debug_fp is not None:
+                try: debug_fp.close()
+                except Exception: pass
             log.info("← upstream stream closed (model=%s, real_text=%s, finish=%s)",
                      model, translator._real_text_emitted, translator.finish_reason)
 
