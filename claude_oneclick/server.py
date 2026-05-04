@@ -390,29 +390,36 @@ class _Handler(BaseHTTPRequestHandler):
         if (preset.get("format") or "openai").lower() == "anthropic":
             self._send_json(400, {"ok": False, "error": "test-preset only works for openai-format presets"})
             return
+        # Pre-flight: catch the obvious config holes before paying for a
+        # round trip and a vague "test failed" message.
+        if not (preset.get("base_url") or "").strip():
+            self._send_json(200, {"ok": False, "error": "no Base URL set on this preset"})
+            return
+        from claude_oneclick.config import _resolve_api_key
+        if not _resolve_api_key(preset):
+            self._send_json(200, {"ok": False, "error": "no API key saved on this preset (paste one in the API key field, then click Save changes)"})
+            return
         # Make sure the proxy is up before pinging it.
         proxy.ensure_running()
         p = cfg.get("proxy", {})
         proxy_host = p.get("host", "127.0.0.1")
         proxy_port = int(p.get("port", 47824))
-        # Need to flip the active preset to the one we want to test, then
-        # restore. Skip if it's already active.
-        prev_active = cfg.get("active")
-        prev_enabled = bool(cfg.get("enabled"))
         try:
-            if prev_active != name:
-                cfg_mod.set_active(name)
-            cfg_mod.set_enabled(True)
             payload = json.dumps({
                 "model": preset.get("model") or name,
                 "messages": [{"role": "user", "content": "Reply with just OK."}],
                 "max_tokens": 20,
                 "stream": False,
             }).encode("utf-8")
+            # Per-request preset override → no need to flip the active
+            # preset or touch global env state.
             req = urllib.request.Request(
                 f"http://{proxy_host}:{proxy_port}/v1/messages",
                 data=payload,
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "X-CoC-Preset": name,
+                },
                 method="POST",
             )
             t0 = _t.time()
@@ -420,33 +427,44 @@ class _Handler(BaseHTTPRequestHandler):
                 resp = json.loads(r.read().decode("utf-8"))
             elapsed = round((_t.time() - t0) * 1000, 1)
             text = ""
+            tool_calls = 0
             for b in resp.get("content") or []:
-                if isinstance(b, dict) and b.get("type") == "text":
-                    text += b.get("text") or ""
+                if isinstance(b, dict):
+                    if b.get("type") == "text":
+                        text += b.get("text") or ""
+                    elif b.get("type") == "tool_use":
+                        tool_calls += 1
+            stop_reason = resp.get("stop_reason")
+            # Any well-formed response = success. Empty text + no tool +
+            # error stop_reason = failure (with detail).
+            ok = bool(text.strip()) or tool_calls > 0 or stop_reason in ("end_turn", "stop_sequence", "max_tokens")
+            preview = text[:200] if text else (f"({tool_calls} tool call(s))" if tool_calls else "(empty response)")
             self._send_json(200, {
-                "ok": bool(text.strip()),
+                "ok": ok,
                 "latency_ms": elapsed,
-                "response_text": text[:200],
-                "stop_reason": resp.get("stop_reason"),
+                "response_text": preview,
+                "stop_reason": stop_reason,
                 "usage": resp.get("usage"),
                 "preset": name,
                 "model": resp.get("model"),
+                "error": None if ok else f"upstream returned an empty response (stop_reason={stop_reason!r})",
             })
         except urllib.error.HTTPError as e:
             try:
                 err_body = e.read().decode("utf-8", "replace")
             except Exception:
                 err_body = str(e)
-            self._send_json(200, {"ok": False, "error": f"HTTP {e.code}: {err_body[:300]}"})
+            # Try to surface upstream's own error message for clarity.
+            try:
+                parsed = json.loads(err_body)
+                msg = (parsed.get("error") or {}).get("message") or parsed.get("message") or err_body
+            except Exception:
+                msg = err_body
+            self._send_json(200, {"ok": False, "error": f"HTTP {e.code}: {str(msg)[:400]}"})
+        except urllib.error.URLError as e:
+            self._send_json(200, {"ok": False, "error": f"can't reach proxy at {proxy_host}:{proxy_port} — {e.reason}"})
         except Exception as e:
-            self._send_json(200, {"ok": False, "error": str(e)})
-        finally:
-            # Restore prior active/enabled state.
-            if prev_active != name:
-                try: cfg_mod.set_active(prev_active or "anthropic")
-                except Exception: pass
-            cfg_mod.set_enabled(prev_enabled)
-            system_env.apply_state()
+            self._send_json(200, {"ok": False, "error": f"{type(e).__name__}: {e}"})
 
     def _api_provider_models(self, group: str) -> None:
         """Live catalog for a whole provider group (e.g. "NVIDIA NIMs").

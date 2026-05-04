@@ -636,6 +636,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _proxy_models(self) -> None:
         cfg = load()
         active = cfg.get("active") or "anthropic"
+        override = self.headers.get("X-CoC-Preset")
+        if override:
+            active = override
         preset = get_preset(active, cfg) or {}
         base = (preset.get("base_url") or "").rstrip("/")
         if not base:
@@ -716,6 +719,12 @@ class _Handler(BaseHTTPRequestHandler):
 
         cfg = load()
         active = cfg.get("active") or "anthropic"
+        # Optional per-request override: a header (set by /api/test-preset
+        # and any future "try this preset" UIs) can pin which preset to
+        # use for THIS request only, without mutating global state.
+        override = self.headers.get("X-CoC-Preset")
+        if override:
+            active = override
         preset = get_preset(active, cfg) or {}
         if (preset.get("format") or "openai").lower() != "openai":
             self._send_json(400, {"error": {"message": "active preset is not OpenAI-format; the proxy is only used for openai presets"}})
@@ -723,7 +732,7 @@ class _Handler(BaseHTTPRequestHandler):
         base = (preset.get("base_url") or "").rstrip("/")
         api_key = _resolve_api_key(preset)
         if not base or not api_key:
-            self._send_json(400, {"error": {"message": "active preset missing base_url or api_key"}})
+            self._send_json(400, {"error": {"message": f"preset {active!r} missing base_url or api_key"}})
             return
 
         wants_stream = bool(req.get("stream")) and not preset.get("disable_streaming")

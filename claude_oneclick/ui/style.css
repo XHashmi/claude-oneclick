@@ -307,6 +307,22 @@ body:has(dialog[open]) .wstrip-popover,
 body:has(dialog[open]) .banner { display: none !important; }
 #test-result.ok { color: var(--accent-2); }
 #test-result.error { color: var(--danger); }
+.test-result {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--bg-2);
+  border-radius: 6px;
+  border-left: 3px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  display: none;
+}
+.test-result:not(:empty) { display: block; }
+.test-result.ok    { border-left-color: var(--accent-2); }
+.test-result.error { border-left-color: var(--danger); }
 
 /* Panel separator inside the merged Setup tab */
 .panel-sep { border: 0; border-top: 1px solid var(--border); margin: 22px 0 16px; }

@@ -463,20 +463,35 @@ $("#btn-save-key").addEventListener("click", async () => {
 $("#btn-test").addEventListener("click", async () => {
   const p = getSelected(); if (!p) return;
   const out = $("#test-result");
-  out.className = "muted small";
-  out.textContent = "Testing… (sending a tiny request to the upstream)";
+  // Warn if the form has unsaved edits — the test uses what's saved
+  // on disk, not what's currently typed in the form.
+  const formUrl = ($("#f-base") && $("#f-base").value || "").trim();
+  const formModel = ($("#f-model") && $("#f-model").value || "").trim();
+  const dirty = (p.base_url || "") !== formUrl || (p.model || "") !== formModel;
+  if (dirty) {
+    const proceed = await confirmDialog(
+      "Unsaved changes",
+      "The Test button uses the SAVED preset. You have unsaved edits in the form.\n\nClick Save changes first, or test against the previously-saved values?",
+      "Test saved values",
+    );
+    if (!proceed) return;
+  }
+  out.className = "test-result muted";
+  out.textContent = "Testing… sending a tiny request to " + (p.label || p.name);
   try {
     const r = await api("POST", "/api/test-preset", { name: p.name });
     if (r.ok) {
-      out.className = "small ok";
+      out.className = "test-result ok";
       out.innerHTML = `✓ <b>OK</b> in ${r.latency_ms}ms · ${escape(p.label || p.name)} replied: <i>"${escape(r.response_text || "(empty)")}"</i>`;
     } else {
-      out.className = "small error";
-      out.textContent = "✗ " + (r.error || "test failed");
+      out.className = "test-result error";
+      // Full error, no truncation — these messages carry actionable info
+      // (HTTP status, upstream's own error text, missing-key hint, etc.)
+      out.textContent = "✗ " + (r.error || "test failed (no error message returned)");
     }
     refreshUsage();
   } catch (err) {
-    out.className = "small error";
+    out.className = "test-result error";
     out.textContent = "✗ " + err.message;
   }
 });
