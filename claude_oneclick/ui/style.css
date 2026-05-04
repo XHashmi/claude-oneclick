@@ -351,6 +351,32 @@ body:has(dialog[open]) .banner { display: none !important; }
 .tool-badge.no      { color: var(--danger); border-color: var(--danger); background: rgba(239, 68, 68, .1); }
 .tool-badge.unknown { color: var(--muted); border-color: var(--border); }
 
+/* Provider-recipe quick-apply buttons row. */
+.recipe-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+.recipe-row .btn.small {
+  padding: 5px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Collapsible "more options" fold — keeps the simple view simple. */
+.advanced-fold {
+  margin: 8px 0;
+}
+.advanced-fold > summary {
+  cursor: pointer;
+  padding: 4px 0;
+  user-select: none;
+}
+.advanced-fold > summary:hover { color: var(--accent); }
+.advanced-fold[open] > summary { margin-bottom: 8px; color: var(--accent); }
+
 /* Vendor sub-headers inside the live "Browse" catalog */
 .extras-vendor {
   font-size: 10px; color: var(--muted); font-weight: 700;

@@ -84,6 +84,33 @@ class RequestTranslatorTests(unittest.TestCase):
         out = anthropic_to_openai_request(req, PRESET)
         self.assertEqual(out["temperature"], 0.5)
 
+    def test_extended_sampling_passthrough(self):
+        preset = dict(PRESET, sampling={
+            "temperature": 0.7,
+            "frequency_penalty": 0.4,
+            "presence_penalty": -0.2,
+            "seed": 1234,
+            "stop": ["</answer>", "###"],
+        })
+        req = {"model": "x", "messages": [{"role": "user", "content": "hi"}]}
+        out = anthropic_to_openai_request(req, preset)
+        self.assertEqual(out["frequency_penalty"], 0.4)
+        self.assertEqual(out["presence_penalty"], -0.2)
+        self.assertEqual(out["seed"], 1234)
+        self.assertEqual(out["stop"], ["</answer>", "###"])
+
+    def test_response_format_passthrough(self):
+        preset = dict(PRESET, response_format="json_object")
+        req = {"model": "x", "messages": [{"role": "user", "content": "hi"}]}
+        out = anthropic_to_openai_request(req, preset)
+        self.assertEqual(out["response_format"], {"type": "json_object"})
+
+    def test_response_format_blank_omits_field(self):
+        preset = dict(PRESET, response_format="")
+        req = {"model": "x", "messages": [{"role": "user", "content": "hi"}]}
+        out = anthropic_to_openai_request(req, preset)
+        self.assertNotIn("response_format", out)
+
     def test_reasoning_flag_passthrough(self):
         preset = dict(PRESET, reasoning_enabled=True, reasoning_effort="high")
         req = {"model": "x", "messages": [{"role": "user", "content": "hi"}]}

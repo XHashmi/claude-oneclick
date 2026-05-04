@@ -71,7 +71,17 @@ _PRESET_FIELDS_WITH_DEFAULTS: dict[str, Any] = {
         "top_p": None,
         "top_k": None,
         "max_tokens": None,
+        # Extended OpenAI-standard sampling. None = don't send the field
+        # (let the upstream use its default).
+        "frequency_penalty": None,   # -2.0 .. 2.0 (Groq, OpenAI, NIMs)
+        "presence_penalty": None,    # -2.0 .. 2.0 (Groq, OpenAI, NIMs)
+        "seed": None,                # int — deterministic mode where supported
+        "stop": None,                # list[str] — stop sequences pinned per-preset
     },
+    # OpenAI-style response_format passthrough. Either:
+    #   "" / null     — don't send
+    #   "json_object" — {"type": "json_object"} (most providers honor)
+    "response_format": "",
     "request_timeout_seconds": 600,
     "retries": 2,
     "retry_backoff": 1.5,

@@ -233,10 +233,18 @@
         is silently dropped for OpenAI-style upstreams (they don't accept
         it).
       </div>
-      <div class="row"><label>temperature</label><input id="f-s-temperature" type="number" step="0.05" min="0" max="2" /></div>
-      <div class="row"><label>top_p</label><input id="f-s-top_p" type="number" step="0.05" min="0" max="1" /></div>
-      <div class="row"><label>top_k</label><input id="f-s-top_k" type="number" step="1" min="0" /></div>
-      <div class="row"><label>max_tokens</label><input id="f-s-max_tokens" type="number" step="1" min="1" /></div>
+      <div class="row"><label>temperature <span class="muted small">randomness · 0 = boring, 1 = lively</span></label><input id="f-s-temperature" type="number" step="0.05" min="0" max="2" /></div>
+      <div class="row"><label>top_p <span class="muted small">leave at default unless you know what you're doing</span></label><input id="f-s-top_p" type="number" step="0.05" min="0" max="1" /></div>
+      <div class="row"><label>max_tokens <span class="muted small">cap reply length</span></label><input id="f-s-max_tokens" type="number" step="1" min="1" /></div>
+      <div class="row"><label>seed <span class="muted small">same seed = same answer (when supported)</span></label><input id="f-s-seed" type="number" step="1" /></div>
+      <details class="advanced-fold">
+        <summary class="muted small">More sampling options</summary>
+        <div class="row"><label>top_k</label><input id="f-s-top_k" type="number" step="1" min="0" /></div>
+        <div class="row"><label>frequency_penalty <span class="muted small">(-2..2)</span></label><input id="f-s-frequency_penalty" type="number" step="0.1" min="-2" max="2" /></div>
+        <div class="row"><label>presence_penalty <span class="muted small">(-2..2)</span></label><input id="f-s-presence_penalty" type="number" step="0.1" min="-2" max="2" /></div>
+        <div class="row"><label>stop sequences <span class="muted small">(comma-sep)</span></label><input id="f-s-stop" type="text" placeholder="&lt;/answer&gt;, ###, etc." /></div>
+      </details>
+      <hr class="panel-sep" />
       <div class="row"><label>request timeout (s)</label><input id="f-request_timeout_seconds" type="number" step="1" min="1" /></div>
       <div class="row"><label>retries</label><input id="f-retries" type="number" step="1" min="0" /></div>
       <div class="row"><label>retry backoff</label><input id="f-retry_backoff" type="number" step="0.1" min="1" /></div>
@@ -261,17 +269,39 @@
 
     <div class="panel" id="panel-advanced">
       <div class="hint">
-        Power-user knobs. <b>System prompt prefix/suffix</b> is bolted onto
-        the system message before forwarding (handy for jailbreak prompts
-        or persona text). <b>Disable streaming</b> falls back to a single
-        non-streamed response — try this first if you see corrupted output.
-        <b>Pass <code>cache_control</code></b> only matters on providers
-        that support Anthropic's prompt-cache markers.
+        <b>Don't know what to do here?</b> Most people never need to touch
+        this tab. Skip to <b>One-click presets</b> below — that's the easy
+        way to apply provider-specific tinkering with a single click.
+        Everything above it is for power users.
       </div>
       <div class="row"><label>System prompt prefix</label><textarea id="f-system_prompt_prefix" rows="3"></textarea></div>
       <div class="row"><label>System prompt suffix</label><textarea id="f-system_prompt_suffix" rows="3"></textarea></div>
       <div class="row check"><label><input type="checkbox" id="f-disable_streaming" /> Disable streaming (for upstreams with buggy SSE)</label></div>
       <div class="row check"><label><input type="checkbox" id="f-prompt_cache_passthrough" /> Pass <code>cache_control</code> markers to upstream</label></div>
+      <hr class="panel-sep" />
+      <div class="row">
+        <label>Force JSON output</label>
+        <select id="f-response_format">
+          <option value="">No — let the model write freely</option>
+          <option value="json_object">Yes — only valid JSON</option>
+        </select>
+      </div>
+      <p class="muted small">Use this when you need machine-readable answers. Most providers honor it; Anthropic-native does not.</p>
+      <hr class="panel-sep" />
+      <div class="row">
+        <label>One-click presets</label>
+        <div class="recipe-row">
+          <button type="button" class="btn small" data-recipe="deepseek-thinking" title="Turn on DeepSeek's chain-of-thought (slower but smarter on hard problems)">🧠 DeepSeek thinking</button>
+          <button type="button" class="btn small" data-recipe="anthropic-thinking" title="Anthropic extended thinking — Claude shows its reasoning, uses ~4K extra tokens">🧠 Claude thinking</button>
+          <button type="button" class="btn small" data-recipe="openrouter-no-quant" title="OpenRouter only — avoid quantized (lower-quality) variants">💎 No quantization</button>
+          <button type="button" class="btn small" data-recipe="openrouter-cheapest" title="OpenRouter only — pick the cheapest provider with this model">💰 Cheapest</button>
+          <button type="button" class="btn small" data-recipe="openrouter-fastest" title="OpenRouter only — pick the fastest provider (may cost more)">⚡ Fastest</button>
+          <button type="button" class="btn small" data-recipe="nim-guided-json" title="NVIDIA NIMs only — strict JSON output via guided_json">🛟 NIMs guided JSON</button>
+          <button type="button" class="btn small" data-recipe="groq-reasoning" title="Groq only — request the model show its work">🧠 Groq reasoning</button>
+          <button type="button" class="btn small" data-recipe="clear" title="Empty the Extra request body">🗑 Clear</button>
+        </div>
+        <p class="muted small">Click a button → it fills the <b>Extra request body</b> below. Pick the one matching your provider; ignore the rest. Click again to add more, <b>Clear</b> wipes it.</p>
+      </div>
       <fieldset class="reasoning-box">
         <legend>Reasoning</legend>
         <p class="muted small">

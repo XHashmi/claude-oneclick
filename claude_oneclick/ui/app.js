@@ -321,6 +321,11 @@ function renderDetail() {
   $("#f-s-top_p").value = samp.top_p ?? "";
   $("#f-s-top_k").value = samp.top_k ?? "";
   $("#f-s-max_tokens").value = samp.max_tokens ?? "";
+  $("#f-s-frequency_penalty").value = samp.frequency_penalty ?? "";
+  $("#f-s-presence_penalty").value = samp.presence_penalty ?? "";
+  $("#f-s-seed").value = samp.seed ?? "";
+  $("#f-s-stop").value = Array.isArray(samp.stop) ? samp.stop.join(", ") : (samp.stop || "");
+  $("#f-response_format").value = p.response_format || "";
   $("#f-request_timeout_seconds").value = p.request_timeout_seconds ?? "";
   $("#f-retries").value = p.retries ?? "";
   $("#f-retry_backoff").value = p.retry_backoff ?? "";
@@ -1210,7 +1215,12 @@ function collectForm(name) {
       top_p: num("#f-s-top_p"),
       top_k: num("#f-s-top_k"),
       max_tokens: num("#f-s-max_tokens"),
+      frequency_penalty: num("#f-s-frequency_penalty"),
+      presence_penalty: num("#f-s-presence_penalty"),
+      seed: num("#f-s-seed"),
+      stop: parseStopList($("#f-s-stop").value),
     },
+    response_format: $("#f-response_format").value,
     request_timeout_seconds: num("#f-request_timeout_seconds"),
     retries: num("#f-retries"),
     retry_backoff: num("#f-retry_backoff"),
@@ -1224,6 +1234,12 @@ function collectForm(name) {
   };
 }
 
+function parseStopList(s) {
+  s = String(s || "").trim();
+  if (!s) return null;
+  return s.split(",").map(x => x.trim()).filter(Boolean);
+}
+
 function parseExtraBody() {
   const raw = ($("#f-extra_body").value || "").trim();
   if (!raw) return {};
@@ -1235,6 +1251,45 @@ function parseExtraBody() {
     throw new Error("Extra request body: " + e.message);
   }
 }
+
+// Provider recipe buttons — drop the right extra_body shape into the
+// textarea so users don't have to memorize each provider's per-request
+// quirks. Layered (each click MERGES into the existing object).
+const _RECIPES = {
+  "deepseek-thinking": { thinking: { type: "enabled" } },
+  "anthropic-thinking": { thinking: { type: "enabled", budget_tokens: 4096 } },
+  "openrouter-no-quant": { provider: { quantizations: ["fp8", "fp16", "bf16"] } },
+  "openrouter-cheapest": { provider: { sort: "price" } },
+  "openrouter-fastest": { provider: { sort: "throughput" } },
+  "nim-guided-json": { nvext: { guided_json: true } },
+  "groq-reasoning": { reasoning_effort: "{{effort}}", reasoning_format: "parsed" },
+};
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-recipe]");
+  if (!btn) return;
+  const r = btn.dataset.recipe;
+  const ta = $("#f-extra_body");
+  if (r === "clear") { ta.value = ""; toast("Extra body cleared"); return; }
+  const recipe = _RECIPES[r];
+  if (!recipe) return;
+  let current = {};
+  const raw = (ta.value || "").trim();
+  if (raw) {
+    try { const o = JSON.parse(raw); if (o && typeof o === "object") current = o; }
+    catch (_) { /* invalid JSON — start fresh */ }
+  }
+  // Deep-merge so clicking two recipes layers them.
+  const merged = { ...current };
+  for (const [k, v] of Object.entries(recipe)) {
+    if (v && typeof v === "object" && !Array.isArray(v) && current[k] && typeof current[k] === "object") {
+      merged[k] = { ...current[k], ...v };
+    } else {
+      merged[k] = v;
+    }
+  }
+  ta.value = JSON.stringify(merged, null, 2);
+  toast(`Applied: ${btn.textContent.trim()}`, "ok");
+});
 
 // --- keyboard shortcut: Space toggles -------------------------------------
 

@@ -254,10 +254,28 @@ def anthropic_to_openai_request(req: dict[str, Any], preset: dict[str, Any]) -> 
     if "max_tokens" not in out:
         out["max_tokens"] = 4096
 
-    # Stop sequences passthrough.
-    stop = req.get("stop_sequences")
+    # Extended OpenAI-standard sampling — preset-only (Claude Code never
+    # sends these on /v1/messages). Skip silently if the upstream doesn't
+    # recognize them; OpenAI ignores unknowns rather than 400ing.
+    for k in ("frequency_penalty", "presence_penalty", "seed"):
+        v = samp.get(k)
+        if v is not None:
+            out[k] = v
+
+    # Stop sequences — preset-pinned overrides request, since the user
+    # explicitly configured stop tokens for this preset's model.
+    stop = samp.get("stop") or req.get("stop_sequences")
     if stop:
         out["stop"] = stop
+
+    # response_format — passthrough JSON mode for upstreams that honor
+    # OpenAI's text/json_object/json_schema convention. Preset-pinned.
+    rf = preset.get("response_format")
+    if rf:
+        if isinstance(rf, str) and rf in ("text", "json_object"):
+            out["response_format"] = {"type": rf}
+        elif isinstance(rf, dict):
+            out["response_format"] = rf
 
     # Reasoning toggle.
     #
