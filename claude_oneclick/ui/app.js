@@ -651,6 +651,22 @@ document.addEventListener("click", (e) => {
   popover.classList.remove("hidden");
 });
 $("#wpop-close").addEventListener("click", () => $("#wstrip-popover").classList.add("hidden"));
+$("#wpop-resync").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true; const oldText = btn.textContent; btn.textContent = "Syncing…";
+  try {
+    const r = await fetch("/api/resync", { method: "POST", headers: { "X-CSRF-Token": csrf } });
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || ("HTTP " + r.status));
+    toast("System resynced — open a NEW terminal so Claude Code picks it up", "ok");
+    $("#wstrip-popover").classList.add("hidden");
+    refreshStrip();
+  } catch (err) {
+    toast("Resync failed: " + err.message, "error");
+  } finally {
+    btn.disabled = false; btn.textContent = oldText;
+  }
+});
 
 // ---- Usage footer --------------------------------------------------------
 

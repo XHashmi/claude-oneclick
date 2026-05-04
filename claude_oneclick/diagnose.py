@@ -170,39 +170,82 @@ def check_wire_provider_proxy(preset: dict[str, Any], provider_node: dict[str, A
 _RECENT_REQUEST_RE = re.compile(r"→ upstream", re.IGNORECASE)
 
 
+def _windows_user_env(name: str) -> str | None:
+    """Read a user-scope env var from HKCU\\Environment via PowerShell.
+    Authoritative on Windows — reflects what new processes will inherit.
+    Returns None if the call fails (PowerShell missing, etc.)."""
+    try:
+        ps = f"[System.Environment]::GetEnvironmentVariable('{name}', 'User')"
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+            capture_output=True, text=True, timeout=4, check=False,
+        )
+        if proc.returncode != 0:
+            return None
+        out = (proc.stdout or "").strip()
+        return out or None
+    except Exception:
+        return None
+
+
+def _expected_base_url() -> str:
+    cfg = load()
+    p = cfg.get("proxy", {}) or {}
+    return f"http://{p.get('host', '127.0.0.1')}:{int(p.get('port', 47824))}"
+
+
 def check_wire_proxy_claude(needed: bool) -> dict[str, Any]:
     """Is the env wired up so a fresh shell + Claude Code finds the proxy?
 
-    Three signals:
-      1. ``env.sh`` (or env.ps1 on Windows) actually exports
-         ANTHROPIC_BASE_URL → the toggle is ON and applied.
-      2. The current process's environment has it set, OR the rc file
-         has the source-line marker (older shells need a relogin).
-      3. The proxy log has at least one '→ upstream' line in the last
-         5 minutes — strongest proof that something *did* hit it.
+    Platform-aware. POSIX checks env.sh; Windows checks env.ps1 +
+    env.cmd + the user-scope registry (HKCU\\Environment), which is
+    the authoritative source for what new processes will inherit.
     """
     if not needed:
         return {"status": "ok", "detail": "Claude Code talks to the provider directly (no proxy)"}
 
-    # 1. env file content
-    ef = env_file()
-    has_export = False
-    if ef.exists():
-        text = ef.read_text(encoding="utf-8", errors="ignore")
-        has_export = "ANTHROPIC_BASE_URL" in text and "export ANTHROPIC_BASE_URL=" in text
-    if not has_export:
-        return {"status": "error",
-                "detail": "ANTHROPIC_BASE_URL not exported in ~/.config/claude-oneclick/env.sh — "
-                          "flip the toggle ON or run `claude-oneclick on`"}
+    is_win = platform.system() == "Windows"
+    expected = _expected_base_url()
 
-    # 2. recent request in the proxy log
+    if is_win:
+        # 1a. env.ps1 / env.cmd content
+        from claude_oneclick.windows import env_cmd_path, env_ps1_path
+        ps1 = env_ps1_path()
+        cmd_p = env_cmd_path()
+        ps1_ok = ps1.exists() and "ANTHROPIC_BASE_URL" in ps1.read_text(encoding="utf-8", errors="ignore")
+        cmd_ok = cmd_p.exists() and "ANTHROPIC_BASE_URL" in cmd_p.read_text(encoding="utf-8", errors="ignore")
+        files_have_export = ps1_ok or cmd_ok
+
+        # 1b. registry (most authoritative — what fresh processes inherit)
+        reg_value = _windows_user_env("ANTHROPIC_BASE_URL")
+
+        if not files_have_export and not reg_value:
+            return {"status": "error",
+                    "detail": "ANTHROPIC_BASE_URL not set on this Windows account — "
+                              "flip the toggle ON or run `claude-oneclick on`"}
+        if reg_value and reg_value != expected:
+            return {"status": "warn",
+                    "detail": f"user-env has ANTHROPIC_BASE_URL={reg_value!r}, "
+                              f"but the proxy is running at {expected}. "
+                              "Flip the toggle OFF and ON to resync."}
+    else:
+        ef = env_file()
+        has_export = False
+        if ef.exists():
+            text = ef.read_text(encoding="utf-8", errors="ignore")
+            has_export = "export ANTHROPIC_BASE_URL=" in text
+        if not has_export:
+            return {"status": "error",
+                    "detail": "ANTHROPIC_BASE_URL not exported in ~/.config/claude-oneclick/env.sh — "
+                              "flip the toggle ON or run `claude-oneclick on`"}
+
+    # Strongest proof: an actual request hit the proxy recently.
     log = proxy_log()
     recent = False
     if log.exists():
         try:
             mtime = log.stat().st_mtime
             if time.time() - mtime < 300:
-                # quick tail
                 with log.open("rb") as f:
                     f.seek(0, os.SEEK_END)
                     size = f.tell()
@@ -213,15 +256,17 @@ def check_wire_proxy_claude(needed: bool) -> dict[str, Any]:
         except OSError:
             pass
 
-    # 3. current-process env (cosmetic — the env was set, but a shell
-    #    that opened *before* the install or before flipping ON won't
-    #    have it).
     in_proc = bool(os.environ.get("ANTHROPIC_BASE_URL"))
 
     if recent:
         return {"status": "ok", "detail": "Claude Code is hitting the proxy (recent request in the log)"}
     if in_proc:
         return {"status": "ok", "detail": "env wired up; no traffic seen yet — open a Claude Code session"}
+    if is_win:
+        return {"status": "warn",
+                "detail": "env is set in your user account, but no traffic seen yet. "
+                          "Open a NEW terminal/VSCode window (existing ones still have the old env), "
+                          "then start Claude Code there."}
     return {"status": "warn",
             "detail": "env file is correct but this UI process didn't inherit it. "
                       "Open a NEW terminal (or restart VSCode) so Claude Code picks up the env, "

@@ -214,6 +214,14 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/proxy/restart":
             self._api_proxy_restart()
             return
+        if path == "/api/resync":
+            # Force-reapply env files, VSCode settings, and proxy lifecycle
+            # from the current config. Use when the toggle was flipped but
+            # the system didn't pick up — common on Windows after a reboot
+            # or when env.ps1 / registry got out of sync with config.json.
+            status = system_env.apply_state()
+            self._send_json(200, {"ok": True, "status": status})
+            return
         if path == "/api/import":
             self._api_import(body)
             return
