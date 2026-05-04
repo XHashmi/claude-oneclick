@@ -238,8 +238,16 @@ code { background: var(--bg-3); padding: 1px 5px; border-radius: 4px; font-size:
   font-size: 12px; z-index: 30;
 }
 .usage-footer button { font-size: 14px; }
+/* When any dialog is open, get the footer out of the way so it can't
+ * overlap dialog content (Settings has grown tall enough to reach the
+ * bottom of the viewport on smaller screens). */
+body:has(dialog[open]) .usage-footer { display: none; }
 #test-result.ok { color: var(--accent-2); }
 #test-result.error { color: var(--danger); }
+
+/* Make dialogs scroll their own content instead of letting it run
+ * behind / past the viewport. */
+dialog { max-height: calc(100vh - 40px); overflow-y: auto; }
 
 /* Panel separator inside the merged Setup tab */
 .panel-sep { border: 0; border-top: 1px solid var(--border); margin: 22px 0 16px; }
