@@ -116,7 +116,7 @@ class ConfigTests(unittest.TestCase):
             }))
             from claude_oneclick.config import load
             cfg = load()
-            self.assertEqual(cfg["version"], 3)
+            self.assertEqual(cfg["version"], 4)
             self.assertIn("skip_vscode_login", cfg)
             self.assertIn("model_discovery", cfg)
 

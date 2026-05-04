@@ -393,8 +393,10 @@ class StreamTranslatorTests(unittest.TestCase):
         ])
         types = [e["type"] for e in events]
         self.assertEqual(types[0], "message_start")
-        self.assertEqual(types[1], "content_block_start")
-        # at least one delta
+        # An optional ping may appear right after message_start (matches
+        # Anthropic's reference stream).
+        self.assertEqual(types[1], "ping")
+        self.assertIn("content_block_start", types)
         self.assertIn("content_block_delta", types)
         self.assertIn("content_block_stop", types)
         self.assertEqual(types[-2], "message_delta")

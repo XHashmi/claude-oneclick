@@ -148,13 +148,12 @@ def _migrate(cfg: dict[str, Any]) -> dict[str, Any]:
     if cfg.get("version", 2) < 3:
         # Earlier versions defaulted stream_reasoning to "thinking_block"
         # which emits Anthropic-shape thinking blocks. Anthropic clients
-        # may stall waiting for a cryptographic signature_delta we
-        # can't generate (third-party providers can't sign with
-        # Anthropic's keys). Reset every saved preset to the safer
-        # "text_prefix" default so users don't have to manually toggle
-        # each one. Anyone who explicitly wants thinking blocks can
-        # flip the dropdown back; anyone who never touched it gets the
-        # working default automatically.
+        # validate a cryptographic signature_delta we can't generate
+        # (third-party providers can't sign with Anthropic's keys),
+        # which causes the spinner to hang on responses where reasoning
+        # is present. Reset every saved preset to the safer
+        # "text_prefix" default; anyone who explicitly wants thinking
+        # blocks can flip the dropdown back.
         for ovr in (cfg.get("overrides") or {}).values():
             if ovr.get("stream_reasoning") == "thinking_block":
                 ovr["stream_reasoning"] = "text_prefix"
@@ -162,6 +161,20 @@ def _migrate(cfg: dict[str, Any]) -> dict[str, Any]:
             if up.get("stream_reasoning") == "thinking_block":
                 up["stream_reasoning"] = "text_prefix"
         cfg["version"] = 3
+    if cfg.get("version", 3) < 4:
+        # Belt-and-suspenders: clear stream_reasoning entirely on
+        # presets that still have it set, so the schema default
+        # ("text_prefix") fully takes over. The v3 migration only
+        # reset the explicit "thinking_block" string, but if a preset
+        # has anything stale (None, an old value), this finishes the
+        # job. Also bumps the field for user_presets that don't have
+        # it at all so they pick up the new default.
+        for ovr in (cfg.get("overrides") or {}).values():
+            if "stream_reasoning" in ovr:
+                ovr["stream_reasoning"] = "text_prefix"
+        for up in cfg.get("user_presets") or []:
+            up["stream_reasoning"] = "text_prefix"
+        cfg["version"] = 4
     return cfg
 
 

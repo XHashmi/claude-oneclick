@@ -767,6 +767,11 @@ class _StreamTranslator:
                 "usage": {"input_tokens": 0, "output_tokens": 0},
             },
         })
+        # Anthropic's reference stream emits an early `ping` so any
+        # buffering reverse proxy / IDE extension knows there's
+        # activity. Cheap insurance against intermediate buffering
+        # delays that can also keep Claude Code's spinner spinning.
+        yield _sse_event("ping", {"type": "ping"})
 
     def handle_chunk(self, chunk: dict[str, Any]) -> Iterator[bytes]:
         if not self.started:
@@ -1004,10 +1009,17 @@ class _StreamTranslator:
             "content_filter": "stop_sequence",
             None: "end_turn",
         }.get(self.finish_reason, "end_turn")
+        # Claude Code reads stop_reason out of message_delta (not
+        # message_stop), and uses cumulative `usage` to mark the turn
+        # complete. Some clients won't transition out of "thinking" if
+        # input_tokens is missing, so always emit both.
         yield _sse_event("message_delta", {
             "type": "message_delta",
             "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-            "usage": {"output_tokens": self.output_tokens},
+            "usage": {
+                "input_tokens": self.input_tokens,
+                "output_tokens": self.output_tokens,
+            },
         })
         yield _sse_event("message_stop", {"type": "message_stop"})
 
@@ -1413,6 +1425,12 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
+        # Defeat any reverse-proxy / VSCode-extension buffering. Without
+        # this header some intermediaries hold the SSE response until
+        # the connection closes, defeating the whole point of
+        # streaming. Required to make message_stop arrive promptly at
+        # Claude Code rather than at end-of-connection.
+        self.send_header("X-Accel-Buffering", "no")
         # Explicitly close-on-end so Claude Code's HTTP client doesn't
         # try to reuse the connection while we're still draining the
         # upstream socket.
