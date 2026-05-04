@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import platform
+import re
 import signal
 import socket
 import subprocess
@@ -68,6 +69,34 @@ def _join_endpoint(base: str, endpoint: str) -> str:
     if not endpoint.startswith("v1/"):
         endpoint = f"v1/{endpoint}"
     return f"{base}/{endpoint}"
+
+
+_THINK_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL | re.IGNORECASE)
+
+
+def _strip_think_tags(text: str) -> tuple[str, str]:
+    """Pull out inline <think>...</think> reasoning blocks.
+
+    Returns (text_with_tags_removed, concatenated_reasoning). Older
+    DeepSeek-R1, QwQ, GLM-Z1, and Qwen3-thinking emit chain-of-thought
+    inline like:
+
+        <think>Let me work this out step by step...</think>The answer is 42.
+
+    Claude Code can't render <think> tags meaningfully — left in, the
+    user sees raw markup; the model's actual answer might be
+    overshadowed. We split them so the proxy can route the answer to
+    text content and the reasoning to a thinking-style fallback.
+    """
+    if not text or "<think>" not in text.lower():
+        return text, ""
+    reasoning_parts: list[str] = []
+    def _capture(m: re.Match) -> str:
+        reasoning_parts.append(m.group(1).strip())
+        return ""
+    cleaned = _THINK_RE.sub(_capture, text).strip()
+    return cleaned, "\n\n".join(reasoning_parts).strip()
+
 
 
 # ---------- request translation ---------------------------------------------
@@ -353,12 +382,44 @@ def openai_to_anthropic_response(resp: dict[str, Any], req_model: str) -> dict[s
     msg = choice.get("message") or {}
     content_blocks: list[dict[str, Any]] = []
     text = msg.get("content")
-    if isinstance(text, str) and text:
+    # Reasoning models emit chain-of-thought in either:
+    #   * a separate `reasoning_content` field (DeepSeek V4, Groq), OR
+    #   * inline `<think>...</think>` tags inside `content` (older
+    #     DeepSeek-R1, QwQ, GLM-Z1, Qwen3-thinking).
+    # If the model's whole budget went to reasoning and `content` is
+    # empty, we'd emit zero text blocks and Claude Code would render
+    # "No response requested". Use the reasoning as a fallback, after
+    # stripping the inline tags.
+    reasoning_text = msg.get("reasoning_content") or msg.get("reasoning") or ""
+    if isinstance(text, str):
+        cleaned, inline_reasoning = _strip_think_tags(text)
+        if not reasoning_text and inline_reasoning:
+            reasoning_text = inline_reasoning
+        text = cleaned
+    if isinstance(text, str) and text.strip():
         content_blocks.append({"type": "text", "text": text})
     elif isinstance(text, list):
         for part in text:
             if isinstance(part, dict) and part.get("type") == "text":
-                content_blocks.append({"type": "text", "text": part.get("text") or ""})
+                clean, inline = _strip_think_tags(part.get("text") or "")
+                if clean.strip():
+                    content_blocks.append({"type": "text", "text": clean})
+                if not reasoning_text and inline:
+                    reasoning_text = inline
+    # If we have no visible content but DO have reasoning, surface it
+    # so the user sees *something* instead of an empty turn. Wrap with
+    # a clear marker so it doesn't look like the model's actual answer.
+    if not content_blocks and reasoning_text and reasoning_text.strip():
+        content_blocks.append({
+            "type": "text",
+            "text": (
+                "[reasoning model used its entire output budget on "
+                "internal chain-of-thought without producing a final "
+                "answer — try increasing max_tokens, or pick a "
+                "non-reasoning model variant]\n\n"
+                f"<thinking>\n{reasoning_text.strip()}\n</thinking>"
+            ),
+        })
     for tc in msg.get("tool_calls") or []:
         fn = tc.get("function") or {}
         try:
@@ -422,6 +483,16 @@ class _StreamTranslator:
         self.output_tokens = 0
         self.finish_reason: str | None = None
         self.started = False
+        # Reasoning-model bookkeeping. We accumulate reasoning_content
+        # deltas (separate field on DeepSeek V4 / Groq) AND strip
+        # inline <think>...</think> tags from content (DeepSeek-R1,
+        # QwQ, GLM-Z1, Qwen3-thinking). If by end-of-stream we got
+        # reasoning but no real text, emit the reasoning so the user
+        # sees something instead of "No response requested".
+        self._reasoning_buf = ""
+        self._real_text_emitted = False
+        self._think_open = False  # tracking inline <think> across chunks
+        self._content_carry = ""  # bytes from a half-tag, deferred
 
     def start(self) -> Iterator[bytes]:
         self.started = True
@@ -454,23 +525,34 @@ class _StreamTranslator:
         if finish:
             self.finish_reason = finish
 
-        # text delta
+        # reasoning_content delta (DeepSeek V4, Groq, etc.) — buffer
+        # but don't emit; surfaced at finish() only if the real content
+        # field stays empty.
+        rc = delta.get("reasoning_content") or delta.get("reasoning")
+        if isinstance(rc, str) and rc:
+            self._reasoning_buf += rc
+
+        # text delta — strip inline <think>...</think> tags across
+        # chunk boundaries before emitting.
         text = delta.get("content")
         if isinstance(text, str) and text:
-            if not self.text_block_open:
-                self.text_index = self.next_index
-                self.next_index += 1
-                self.text_block_open = True
-                yield _sse_event("content_block_start", {
-                    "type": "content_block_start",
+            visible = self._consume_content_chunk(text)
+            if visible:
+                self._real_text_emitted = True
+                if not self.text_block_open:
+                    self.text_index = self.next_index
+                    self.next_index += 1
+                    self.text_block_open = True
+                    yield _sse_event("content_block_start", {
+                        "type": "content_block_start",
+                        "index": self.text_index,
+                        "content_block": {"type": "text", "text": ""},
+                    })
+                yield _sse_event("content_block_delta", {
+                    "type": "content_block_delta",
                     "index": self.text_index,
-                    "content_block": {"type": "text", "text": ""},
+                    "delta": {"type": "text_delta", "text": visible},
                 })
-            yield _sse_event("content_block_delta", {
-                "type": "content_block_delta",
-                "index": self.text_index,
-                "delta": {"type": "text_delta", "text": text},
-            })
 
         # tool-call deltas
         for tc in delta.get("tool_calls") or []:
@@ -512,6 +594,36 @@ class _StreamTranslator:
     def finish(self) -> Iterator[bytes]:
         if not self.started:
             yield from self.start()
+        # If the model produced ONLY chain-of-thought (reasoning_content
+        # or unclosed <think>) and never emitted real text, surface the
+        # reasoning so Claude Code shows *something* instead of "No
+        # response requested".
+        fallback = ""
+        if not self._real_text_emitted:
+            fallback = (self._reasoning_buf or self._content_carry).strip()
+        if fallback and not self.text_block_open:
+            self.text_index = self.next_index
+            self.next_index += 1
+            self.text_block_open = True
+            yield _sse_event("content_block_start", {
+                "type": "content_block_start",
+                "index": self.text_index,
+                "content_block": {"type": "text", "text": ""},
+            })
+            yield _sse_event("content_block_delta", {
+                "type": "content_block_delta",
+                "index": self.text_index,
+                "delta": {
+                    "type": "text_delta",
+                    "text": (
+                        "[reasoning model used its entire output budget on "
+                        "internal chain-of-thought without producing a final "
+                        "answer — try increasing max_tokens, or pick a "
+                        "non-reasoning model variant]\n\n"
+                        f"<thinking>\n{fallback}\n</thinking>"
+                    ),
+                },
+            })
         if self.text_block_open and self.text_index is not None:
             yield _sse_event("content_block_stop", {
                 "type": "content_block_stop",
@@ -536,6 +648,50 @@ class _StreamTranslator:
             "usage": {"output_tokens": self.output_tokens},
         })
         yield _sse_event("message_stop", {"type": "message_stop"})
+
+    def _consume_content_chunk(self, text: str) -> str:
+        """Feed a content delta through the inline <think>-stripping state
+        machine. Returns the visible portion (everything outside think tags)
+        and pushes any reasoning portion into ``_reasoning_buf``.
+
+        Handles tags split across chunk boundaries: a "<think" arriving in
+        chunk N and ">..." in chunk N+1 must still be recognized.
+        """
+        buf = self._content_carry + text
+        self._content_carry = ""
+        out = []
+        i = 0
+        while i < len(buf):
+            if not self._think_open:
+                # Look for an opening <think>.
+                idx = buf.lower().find("<think>", i)
+                if idx == -1:
+                    # No tag start. But we might have a partial "<think"
+                    # at the very end — defer up to 7 chars.
+                    tail = buf[max(i, len(buf) - 7):].lower()
+                    cut = len(buf)
+                    for k in range(len(tail)):
+                        if "<think>".startswith(tail[k:]):
+                            cut = max(i, len(buf) - 7) + k
+                            break
+                    out.append(buf[i:cut])
+                    self._content_carry = buf[cut:]
+                    i = len(buf)
+                    break
+                out.append(buf[i:idx])
+                self._think_open = True
+                i = idx + len("<think>")
+            else:
+                end = buf.lower().find("</think>", i)
+                if end == -1:
+                    # Tag still open — consume rest as reasoning.
+                    self._reasoning_buf += buf[i:]
+                    i = len(buf)
+                    break
+                self._reasoning_buf += buf[i:end] + "\n\n"
+                self._think_open = False
+                i = end + len("</think>")
+        return "".join(out)
 
 
 # ---------- HTTP handler ----------------------------------------------------

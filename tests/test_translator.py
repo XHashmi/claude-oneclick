@@ -199,6 +199,56 @@ class ResponseTranslatorTests(unittest.TestCase):
         self.assertEqual(block["name"], "add")
         self.assertEqual(block["input"], {"a": 1, "b": 2})
 
+    def test_inline_think_tags_stripped_from_content(self):
+        # QwQ / older DeepSeek-R1 / GLM-Z1 emit reasoning inline.
+        oai = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "<think>Let me work this out... 2+2 is 4.</think>The answer is 4.",
+                },
+                "finish_reason": "stop",
+            }],
+        }
+        out = openai_to_anthropic_response(oai, "qwq")
+        self.assertEqual(len(out["content"]), 1)
+        self.assertEqual(out["content"][0]["text"], "The answer is 4.")
+
+    def test_reasoning_content_used_when_visible_text_empty(self):
+        # DeepSeek V4 with max_tokens too small: reasoning_content is
+        # populated but content is empty. Without a fallback Claude Code
+        # would render "No response requested".
+        oai = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "reasoning_content": "Let me think about this problem...",
+                },
+                "finish_reason": "length",
+            }],
+        }
+        out = openai_to_anthropic_response(oai, "deepseek-v4-flash")
+        self.assertEqual(len(out["content"]), 1)
+        self.assertIn("Let me think", out["content"][0]["text"])
+        self.assertIn("max_tokens", out["content"][0]["text"])  # the hint
+        self.assertEqual(out["stop_reason"], "max_tokens")
+
+    def test_reasoning_content_ignored_when_real_content_present(self):
+        oai = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "Hello!",
+                    "reasoning_content": "User said hi, I should greet back.",
+                },
+                "finish_reason": "stop",
+            }],
+        }
+        out = openai_to_anthropic_response(oai, "deepseek-v4-flash")
+        self.assertEqual(len(out["content"]), 1)
+        self.assertEqual(out["content"][0]["text"], "Hello!")
+
 
 class StreamTranslatorTests(unittest.TestCase):
     def _events(self, frames: list[dict]) -> list[dict]:
