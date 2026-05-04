@@ -504,6 +504,8 @@ class _StreamTranslator:
         self._real_text_emitted = False
         self._think_open = False  # tracking inline <think> across chunks
         self._content_carry = ""  # bytes from a half-tag, deferred
+        self._thinking_block_open = False
+        self._thinking_index: int | None = None
 
     def start(self) -> Iterator[bytes]:
         self.started = True
@@ -536,12 +538,32 @@ class _StreamTranslator:
         if finish:
             self.finish_reason = finish
 
-        # reasoning_content delta (DeepSeek V4, Groq, etc.) — buffer
-        # but don't emit; surfaced at finish() only if the real content
-        # field stays empty.
+        # reasoning_content delta (DeepSeek V4, Groq, etc.) — emit
+        # LIVE as a Anthropic-style thinking block so the user sees
+        # progress instead of a frozen spinner. Reasoning models can
+        # spend 5-30s on private chain-of-thought before any visible
+        # text appears; without this, Claude Code shows
+        # "Deliberating..." for the whole duration with no feedback.
+        # We also keep the buffered copy so finish() can fall back if
+        # the real `content` never comes through.
         rc = delta.get("reasoning_content") or delta.get("reasoning")
         if isinstance(rc, str) and rc:
             self._reasoning_buf += rc
+            if not self._thinking_block_open and not self.text_block_open:
+                self._thinking_index = self.next_index
+                self.next_index += 1
+                self._thinking_block_open = True
+                yield _sse_event("content_block_start", {
+                    "type": "content_block_start",
+                    "index": self._thinking_index,
+                    "content_block": {"type": "thinking", "thinking": ""},
+                })
+            if self._thinking_block_open:
+                yield _sse_event("content_block_delta", {
+                    "type": "content_block_delta",
+                    "index": self._thinking_index,
+                    "delta": {"type": "thinking_delta", "thinking": rc},
+                })
 
         # text delta — strip inline <think>...</think> tags across
         # chunk boundaries before emitting.
@@ -550,6 +572,14 @@ class _StreamTranslator:
             visible = self._consume_content_chunk(text)
             if visible:
                 self._real_text_emitted = True
+                # Real text means reasoning is over — close the
+                # thinking block before opening text.
+                if self._thinking_block_open and self._thinking_index is not None:
+                    yield _sse_event("content_block_stop", {
+                        "type": "content_block_stop",
+                        "index": self._thinking_index,
+                    })
+                    self._thinking_block_open = False
                 if not self.text_block_open:
                     self.text_index = self.next_index
                     self.next_index += 1
@@ -663,6 +693,12 @@ class _StreamTranslator:
                 "index": self.text_index,
             })
             self.text_block_open = False
+        if self._thinking_block_open and self._thinking_index is not None:
+            yield _sse_event("content_block_stop", {
+                "type": "content_block_stop",
+                "index": self._thinking_index,
+            })
+            self._thinking_block_open = False
         for idx in list(self.tool_index_map.values()):
             yield _sse_event("content_block_stop", {
                 "type": "content_block_stop",

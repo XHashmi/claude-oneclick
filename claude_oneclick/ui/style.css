@@ -325,6 +325,18 @@ body:has(dialog[open]) .banner { display: none !important; }
 .test-result.warn  { border-left-color: var(--warn); color: var(--warn); }
 .test-result.error { border-left-color: var(--danger); }
 
+.speed-hint {
+  margin: 8px 0 16px;
+  padding: 10px 14px;
+  background: rgba(251, 191, 36, .08);
+  border-left: 3px solid var(--warn);
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.speed-hint.hidden { display: none; }
+.speed-hint a { color: var(--accent); text-decoration: underline; }
+
 /* Panel separator inside the merged Setup tab */
 .panel-sep { border: 0; border-top: 1px solid var(--border); margin: 22px 0 16px; }
 

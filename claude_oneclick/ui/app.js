@@ -294,6 +294,10 @@ function renderDetail() {
   if (!p) return;
   $("#preset-title").textContent = p.label || p.name;
   $("#preset-notes").textContent = p.notes || "";
+  // Show the slow-reasoning hint when this preset is configured to
+  // think before answering — sets expectations and offers a quick
+  // escape hatch.
+  $("#speed-hint").classList.toggle("hidden", !p.reasoning_enabled);
 
   $("#f-label").value = p.label || "";
   $("#f-base_url").value = p.base_url || "";
@@ -748,6 +752,16 @@ document.addEventListener("click", (e) => {
   popover.classList.remove("hidden");
 });
 $("#wpop-close").addEventListener("click", () => $("#wstrip-popover").classList.add("hidden"));
+$("#speed-toggle-reasoning").addEventListener("click", async (e) => {
+  e.preventDefault();
+  const p = getSelected(); if (!p) return;
+  try {
+    await api("POST", "/api/preset", { name: p.name, reasoning_enabled: false });
+    await refresh();
+    toast("Reasoning disabled — chat will be much faster now", "ok");
+  } catch (err) { toast(err.message, "error"); }
+});
+
 $("#wpop-resync").addEventListener("click", async (e) => {
   const btn = e.currentTarget;
   btn.disabled = true; const oldText = btn.textContent; btn.textContent = "Syncing…";
