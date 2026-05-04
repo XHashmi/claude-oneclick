@@ -38,6 +38,13 @@ def _default_config() -> dict[str, Any]:
         # Claude Code VSCode extension and CLI bypass the OAuth flow and
         # authenticate using the env-var token directly.
         "skip_vscode_login": True,
+        # When True, API keys are stored in the OS keychain (Keychain on
+        # macOS, Secret Service on Linux, Credential Manager on Windows)
+        # instead of plaintext in config.json. Off by default so existing
+        # installs don't change behavior; users opt in via the Settings
+        # dialog. Reading is transparent: get_preset() pulls from the
+        # keychain when this flag is set and the per-preset field is empty.
+        "use_keychain": False,
         # User-defined presets (built-ins live in code, not here).
         "user_presets": [],
         # Per-preset partial overrides, keyed by preset name. Each value is
@@ -255,6 +262,34 @@ def update_override(name: str, fields: dict[str, Any]) -> None:
     save(cfg)
 
 
+def _use_keychain(cfg: dict[str, Any] | None = None) -> bool:
+    cfg = cfg or load()
+    return bool(cfg.get("use_keychain"))
+
+
+def _resolve_api_key(preset: dict[str, Any], cfg: dict[str, Any] | None = None) -> str:
+    """Returns the effective key for a preset, transparently falling back to
+    the OS keychain (looked up by group) when ``use_keychain`` is on AND the
+    config field is empty.
+    """
+    cfg = cfg or load()
+    own = preset.get("api_key") or ""
+    if own:
+        return own
+    if not _use_keychain(cfg):
+        return ""
+    group = preset.get("group") or ""
+    if not group:
+        return ""
+    try:
+        from claude_oneclick import secrets_store
+        if secrets_store.available():
+            return secrets_store.get(group) or ""
+    except Exception:
+        return ""
+    return ""
+
+
 def set_api_key_for_group(name: str, api_key: str) -> list[str]:
     """Save an API key for ``name`` AND every other preset in the same group.
 
@@ -275,6 +310,33 @@ def set_api_key_for_group(name: str, api_key: str) -> list[str]:
     # Don't propagate within "Custom" or "Default" — those aren't a
     # provider account; each user-created preset is its own thing.
     propagate = group and group not in ("Custom", "Default")
+
+    # Keychain mode: store the key once at the group level and leave
+    # the per-preset api_key fields empty in config.json. _resolve_api_key
+    # transparently looks it up by group at request time.
+    if _use_keychain(cfg) and propagate:
+        try:
+            from claude_oneclick import secrets_store
+            if secrets_store.available():
+                if api_key:
+                    secrets_store.set(group, api_key)
+                else:
+                    secrets_store.delete(group)
+                # Clear any plaintext copies from the config so the
+                # keychain becomes the single source of truth.
+                for p in all_presets(cfg):
+                    if p.get("group") != group:
+                        continue
+                    if p.get("builtin"):
+                        cfg.setdefault("overrides", {}).setdefault(p["name"], {})["api_key"] = ""
+                    else:
+                        for up in cfg.get("user_presets", []):
+                            if up["name"] == p["name"]:
+                                up["api_key"] = ""
+                save(cfg)
+                return [p["name"] for p in all_presets(cfg) if p.get("group") == group]
+        except Exception:
+            pass  # fall through to plaintext path
 
     updated: list[str] = []
     for p in all_presets(cfg):

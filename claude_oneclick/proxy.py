@@ -30,7 +30,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Iterator
 
-from claude_oneclick.config import get_preset, load
+from claude_oneclick.config import _resolve_api_key, get_preset, load
 from claude_oneclick.paths import config_dir, ensure_dirs, pid_file, proxy_log
 
 
@@ -643,7 +643,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         url = _join_endpoint(base, "models")
         headers = {"Accept": "application/json"}
-        api_key = preset.get("api_key") or ""
+        api_key = _resolve_api_key(preset)
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         try:
@@ -721,7 +721,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": {"message": "active preset is not OpenAI-format; the proxy is only used for openai presets"}})
             return
         base = (preset.get("base_url") or "").rstrip("/")
-        api_key = preset.get("api_key") or ""
+        api_key = _resolve_api_key(preset)
         if not base or not api_key:
             self._send_json(400, {"error": {"message": "active preset missing base_url or api_key"}})
             return
@@ -767,7 +767,7 @@ class _Handler(BaseHTTPRequestHandler):
                 if fb_preset and (fb_preset.get("format") or "openai").lower() == "openai":
                     log.info("primary failed (%s); falling back to preset %s", fail_status, fb_name)
                     fb_base = (fb_preset.get("base_url") or "").rstrip("/")
-                    fb_key = fb_preset.get("api_key") or ""
+                    fb_key = _resolve_api_key(fb_preset)
                     if fb_base and fb_key:
                         # Re-translate using the fallback preset's settings
                         # (different model id, different headers).

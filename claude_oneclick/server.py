@@ -172,6 +172,15 @@ class _Handler(BaseHTTPRequestHandler):
                 days = 7
             self._send_json(200, usage_mod.report(days=days))
             return
+        if path == "/api/keychain/status":
+            from claude_oneclick import secrets_store
+            cfg = load()
+            self._send_json(200, {
+                "enabled": bool(cfg.get("use_keychain")),
+                "available": secrets_store.available(),
+                "backend": secrets_store.describe(),
+            })
+            return
         self._send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
@@ -226,6 +235,10 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/test-preset":
             self._api_test_preset(body.get("name", ""))
+            return
+        if path == "/api/keychain/toggle":
+            cfg = load(); cfg["use_keychain"] = bool(body.get("enabled")); save(cfg)
+            self._send_json(200, {"ok": True, "enabled": cfg["use_keychain"]})
             return
         self._send_json(404, {"error": "not found"})
 

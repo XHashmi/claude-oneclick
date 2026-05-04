@@ -908,7 +908,32 @@ $("#btn-settings").addEventListener("click", async () => {
   }
   populateVersionInfo();
   populateDesktopStatus();
+  populateKeychainStatus();
   dlg.showModal();
+});
+
+async function populateKeychainStatus() {
+  try {
+    const r = await api("GET", "/api/keychain/status");
+    $("#set-use-keychain").checked = !!r.enabled;
+    $("#set-keychain-status").textContent = r.available
+      ? `Backend: ${r.backend}${r.enabled ? " (enabled)" : " (available — toggle on to use)"}`
+      : `No keychain backend on this OS (${r.backend}). Falls back to plaintext config.json.`;
+    $("#set-use-keychain").disabled = !r.available;
+  } catch (err) {
+    $("#set-keychain-status").textContent = err.message;
+  }
+}
+
+$("#set-use-keychain").addEventListener("change", async (e) => {
+  try {
+    await api("POST", "/api/keychain/toggle", { enabled: e.target.checked });
+    toast(e.target.checked ? "Keychain mode enabled" : "Keychain mode disabled");
+    populateKeychainStatus();
+  } catch (err) {
+    toast(err.message, "error");
+    e.target.checked = !e.target.checked;
+  }
 });
 
 async function populateDesktopStatus() {

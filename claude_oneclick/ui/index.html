@@ -462,6 +462,11 @@
     <div class="row check"><label><input type="checkbox" id="set-skip_login" /> Skip Claude Code login (sets <code>CLAUDE_CODE_SKIP_LOGIN=1</code> for the CLI &amp; VSCode extension)</label></div>
     <div class="row check"><label><input type="checkbox" id="set-autostart-boot" /> Start Claude OneClick when the system starts <span class="muted small" id="set-autostart-where"></span></label></div>
     <hr class="settings-sep" />
+    <h3 class="settings-section">API key storage</h3>
+    <div class="row check"><label><input type="checkbox" id="set-use-keychain" /> Store API keys in the OS keychain instead of plaintext config.json</label></div>
+    <p class="muted small" id="set-keychain-status">—</p>
+
+    <hr class="settings-sep" />
     <h3 class="settings-section">Surfaces</h3>
     <p class="muted small">Per-surface routing. The shell rc + system env always apply globally; these are extras.</p>
     <div class="row check"><label><input type="checkbox" id="set-desktop-dev" /> Route Claude Desktop chat UI to OneClick (uses Claude Desktop's "Configure Third-Party Inference" config — <span class="warn-text">disables some chat features</span>)</label></div>
